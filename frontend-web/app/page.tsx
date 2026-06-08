@@ -1,73 +1,58 @@
 "use client";
 
-import { useState } from "react";
+import { useState } from 'react';
+import ChatInterface from '@/components/ChatInterface';
+
+// Mock topics representing what will come from your backend later
+const MOCK_TOPICS = [
+  { id: "topic-ml-internship", name: "Machine Learning Internship Prep" },
+  { id: "topic-discrete-math", name: "Discrete Mathematics Exam Notes" },
+  { id: "topic-web-performance", name: "Next.js & Web Performance" }
+];
 
 export default function Home() {
-  const [topic, setTopic] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [message, setMessage] = useState("");
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!topic.trim()) return;
-
-    setStatus("loading");
-
-    try {
-      const response = await fetch("http://localhost:5000/api/research", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicName: topic }),
-      });
-
-      if (!response.ok) throw new Error("Failed to save topic");
-
-      setStatus("success");
-      setMessage(`"${topic}" added successfully! The agentic loop will begin shortly.`);
-      setTopic(""); 
-    } catch (error) {
-      console.error(error);
-      setStatus("error");
-      setMessage("Failed to connect to the CiteOS backend.");
-    }
-  };
+  const [activeTopicId, setActiveTopicId] = useState(MOCK_TOPICS[0].id);
 
   return (
-    <main className="min-h-screen bg-gray-50 flex flex-col items-center py-20 px-4">
-      <div className="max-w-2xl w-full bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">CiteOS Dashboard</h1>
-        <p className="text-gray-500 mb-8">Enter a research topic to trigger the autonomous data pipeline.</p>
+    <main className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar for Topic Selection */}
+      <aside className="w-64 bg-white border-r border-gray-200 p-4 space-y-4 flex flex-col shadow-sm z-10">
+        <div className="font-bold text-lg text-gray-800 border-b pb-2">
+          CiteOS Workspace
+        </div>
+        <nav className="flex-1 space-y-1">
+          {MOCK_TOPICS.map((topic) => (
+            <button
+              key={topic.id}
+              onClick={() => setActiveTopicId(topic.id)}
+              className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTopicId === topic.id
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              {topic.name}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <input
-            type="text"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="e.g., The evolution of solid-state batteries..."
-            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-            disabled={status === "loading"}
-          />
-          <button
-            type="submit"
-            disabled={status === "loading" || !topic.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {status === "loading" ? "Initializing Pipeline..." : "Start Research"}
-          </button>
-        </form>
-
-        {status === "success" && (
-          <div className="mt-6 p-4 bg-green-50 text-green-800 rounded-lg border border-green-200">
-            {message}
-          </div>
-        )}
-        
-        {status === "error" && (
-          <div className="mt-6 p-4 bg-red-50 text-red-800 rounded-lg border border-red-200">
-            {message}
-          </div>
-        )}
-      </div>
+      {/* Main Chat Interface Panel */}
+      <section className="flex-1 flex flex-col justify-center p-8">
+        <div className="w-full max-w-3xl mx-auto space-y-4">
+          <header className="mb-4">
+            <h1 className="text-2xl font-bold text-gray-900">
+              Research Assistant
+            </h1>
+            <p className="text-xs text-gray-500 font-mono bg-gray-200 inline-block px-2 py-1 rounded">
+              Active Context ID: {activeTopicId}
+            </p>
+          </header>
+          
+          {/* Pass the active topic state down as a prop */}
+          <ChatInterface topicId={activeTopicId} />
+        </div>
+      </section>
     </main>
   );
 }

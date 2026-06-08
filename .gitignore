@@ -21,6 +21,7 @@ dist/
 # 3. Python (ai-service)
 
 venv/
+.venv/
 __pycache__/
 *.py[cod]
 *$py.class
