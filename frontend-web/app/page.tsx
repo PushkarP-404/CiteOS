@@ -1,17 +1,45 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ChatInterface from '@/components/ChatInterface';
 
-// Mock topics representing what will come from your backend later
-const MOCK_TOPICS = [
-  { id: "topic-ml-internship", name: "Machine Learning Internship Prep" },
-  { id: "topic-discrete-math", name: "Discrete Mathematics Exam Notes" },
-  { id: "topic-web-performance", name: "Next.js & Web Performance" }
-];
+interface Topic {
+  id: string;
+  name: string;
+}
 
 export default function Home() {
-  const [activeTopicId, setActiveTopicId] = useState(MOCK_TOPICS[0].id);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [activeTopicId, setActiveTopicId] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchTopics = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/topics');
+        const data = await response.json();
+        
+        if (data.status === 'success' && data.topics.length > 0) {
+          setTopics(data.topics);
+          setActiveTopicId(data.topics[0].id); // Auto-select the first topic
+        }
+      } catch (error) {
+        console.error("Failed to load topics:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTopics();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-gray-500 font-medium animate-pulse">Loading Workspace Data...</p>
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gray-50 flex">
@@ -21,19 +49,23 @@ export default function Home() {
           CiteOS Workspace
         </div>
         <nav className="flex-1 space-y-1">
-          {MOCK_TOPICS.map((topic) => (
-            <button
-              key={topic.id}
-              onClick={() => setActiveTopicId(topic.id)}
-              className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTopicId === topic.id
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-              }`}
-            >
-              {topic.name}
-            </button>
-          ))}
+          {topics.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No topics found in MongoDB.</p>
+          ) : (
+            topics.map((topic) => (
+              <button
+                key={topic.id}
+                onClick={() => setActiveTopicId(topic.id)}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  activeTopicId === topic.id
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+              >
+                {topic.name}
+              </button>
+            ))
+          )}
         </nav>
       </aside>
 
@@ -45,12 +77,11 @@ export default function Home() {
               Research Assistant
             </h1>
             <p className="text-xs text-gray-500 font-mono bg-gray-200 inline-block px-2 py-1 rounded">
-              Active Context ID: {activeTopicId}
+              Active Context ID: {activeTopicId || 'None'}
             </p>
           </header>
           
-          {/* Pass the active topic state down as a prop */}
-          <ChatInterface topicId={activeTopicId} />
+          {activeTopicId && <ChatInterface topicId={activeTopicId} />}
         </div>
       </section>
     </main>

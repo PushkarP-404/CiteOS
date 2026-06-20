@@ -1,5 +1,6 @@
 import os
 import ollama
+import urllib.parse
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
@@ -8,6 +9,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from fastembed import TextEmbedding
 from fastapi.responses import StreamingResponse
+from motor.motor_asyncio import AsyncIOMotorClient
 import json
 
 app = FastAPI(title="CiteOS AI Vector Service")
@@ -19,6 +21,20 @@ embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 # Initialize Qdrant Client (Points to your local Docker Qdrant instance)
 qdrant_client = QdrantClient(url="http://localhost:6333")
 COLLECTION_NAME = "citeos_research"
+
+# Initialize MongoDB Client
+# REPLACE THIS STRING with your actual MongoDB URI
+# 1. Initialize MongoDB Client safely
+username = "admin" # Replace with your Atlas username
+raw_password = "CiteOSpassword" # Paste your exact password here
+
+escaped_password = urllib.parse.quote_plus(raw_password)
+
+MONGO_URI = f"mongodb+srv://{username}:{escaped_password}@cluster0.77jzybt.mongodb.net/?retryWrites=true&w=majority"
+
+mongo_client = AsyncIOMotorClient(MONGO_URI)
+mongo_db = mongo_client.get_database("citeos_db") 
+topics_collection = mongo_db.get_collection("topics")
 
 # Ensure the Qdrant collection exists on startup
 try:
@@ -190,6 +206,24 @@ async def generate_answer(payload: AskRequest):
         # 5. Return the StreamingResponse
         return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.get("/api/topics")
+async def get_topics():
+    try:
+        # We only fetch the ID and the name fields to keep the payload light
+        cursor = topics_collection.find({}, {"_id": 1, "name": 1})
+        topics = []
+        
+        async for document in cursor:
+            topics.append({
+                "id": str(document["_id"]),
+                "name": document.get("name", "Unnamed Topic")
+            })
+            
+        return {"status": "success", "topics": topics}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
