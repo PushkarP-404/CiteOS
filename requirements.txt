@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+ollama
+pydantic
+qdrant-client
+langchain-text-splitters
+fastembed
+motor
+numpy
