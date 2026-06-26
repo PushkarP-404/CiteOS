@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import ChatInterface from '@/components/ChatInterface';
+import DocumentUpload from '@/components/DocumentUpload';
 
 interface Topic {
   id: string;
@@ -81,7 +82,12 @@ export default function Home() {
             </p>
           </header>
           
-          {activeTopicId && <ChatInterface topicId={activeTopicId} />}
+          {activeTopicId && (
+            <>
+              <DocumentUpload topicId={activeTopicId} />
+              <ChatInterface topicId={activeTopicId} />
+            </>
+          )}
         </div>
       </section>
     </main>

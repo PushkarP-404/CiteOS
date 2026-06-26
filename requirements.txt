@@ -8,3 +8,5 @@ fastembed
 motor
 numpy
 groq
+pymupdf
+python-multipart

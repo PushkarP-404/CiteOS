@@ -1,7 +1,8 @@
 import os
 from groq import Groq
 import urllib.parse 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import fitz
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from typing import List
@@ -106,6 +107,60 @@ async def vectorize_and_store(payload: VectorizeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+@app.post("/api/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    topicId: str = Form(...)
+):
+    try:
+        # Read the file content
+        content = await file.read()
+        
+        # Extract text using PyMuPDF
+        doc = fitz.open(stream=content, filetype="pdf")
+        text_pages = [page.get_text() for page in doc]
+        full_text = "\n".join(text_pages)
+        
+        if not full_text.strip():
+            return {"status": "skipped", "message": "No text content found in PDF."}
+        
+        # Chunk text intelligently
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=500,
+            chunk_overlap=50
+        )
+        chunks = text_splitter.split_text(full_text)
+        
+        # Generate all embeddings in a fast, single batch pass
+        embeddings = list(embedding_model.embed(chunks))
+        
+        points = []
+        for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
+            point_id = f"{topicId}-{hash(file.filename)}-{i}"
+            point_id = str(abs(hash(point_id)))
+
+            points.append(
+                PointStruct(
+                    id=int(point_id),
+                    vector=vector.tolist(),
+                    payload={
+                        "text": chunk,
+                        "url": file.filename,
+                        "topicId": topicId
+                    }
+                )
+            )
+            
+        if points:
+            qdrant_client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=points
+            )
+
+        return {"status": "success", "chunks_processed": len(points), "filename": file.filename}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class QueryRequest(BaseModel):
     query: str       # The question the user typed
