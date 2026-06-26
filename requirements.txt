@@ -7,3 +7,4 @@ langchain-text-splitters
 fastembed
 motor
 numpy
+groq

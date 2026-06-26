@@ -1,8 +1,9 @@
 import os
-import ollama
-import urllib.parse
+from groq import Groq
+import urllib.parse 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from dotenv import load_dotenv
 from typing import List
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
@@ -12,29 +13,38 @@ from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import json
 
+# Load the environment variables
+load_dotenv()
+
+# Strict Environment Validation Guardrail
+required_envs = ["MONGO_USERNAME", "MONGO_PASSWORD", "MONGO_CLUSTER", "GROQ_API_KEY", "QDRANT_URL"]
+for var in required_envs:
+    if not os.getenv(var):
+        raise ValueError(f"CRITICAL: Missing environment variable: {var}")
+
 app = FastAPI(title="CiteOS AI Vector Service")
 
-# [Certain] Initialize FastEmbed model (runs locally, zero-compiler overhead)
-# This default model outputs 384-dimensional vectors matching our config
-embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
-
-# Initialize Qdrant Client (Points to your local Docker Qdrant instance)
-qdrant_client = QdrantClient(url="http://localhost:6333")
-COLLECTION_NAME = "citeos_research"
-
-# Initialize MongoDB Client
-# REPLACE THIS STRING with your actual MongoDB URI
-# 1. Initialize MongoDB Client safely
-username = "admin" # Replace with your Atlas username
-raw_password = "CiteOSpassword" # Paste your exact password here
+# Initialize MongoDB Client safely
+username = os.getenv("MONGO_USERNAME")
+raw_password = os.getenv("MONGO_PASSWORD")
+cluster = os.getenv("MONGO_CLUSTER")
 
 escaped_password = urllib.parse.quote_plus(raw_password)
-
-MONGO_URI = f"mongodb+srv://{username}:{escaped_password}@cluster0.77jzybt.mongodb.net/?retryWrites=true&w=majority"
+MONGO_URI = f"mongodb+srv://{username}:{escaped_password}@{cluster}/?retryWrites=true&w=majority"
 
 mongo_client = AsyncIOMotorClient(MONGO_URI)
 mongo_db = mongo_client.get_database("citeos_db") 
 topics_collection = mongo_db.get_collection("topics")
+
+# Initialize Groq Client
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# Initialize FastEmbed model (runs locally, zero-compiler overhead)
+embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+
+# Initialize Qdrant Client via Environment Variable
+qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
+COLLECTION_NAME = "citeos_research"
 
 # Ensure the Qdrant collection exists on startup
 try:
@@ -186,20 +196,27 @@ async def generate_answer(payload: AskRequest):
         CONTEXT:
         {compiled_context}
         """
-
-        # 4. Create an async generator to yield chunks
+        
+        # 4. Create an async generator to yield chunks from Groq
         async def generate_stream():
             # Send the initial citations first so the UI can display them immediately
             yield f"data: {json.dumps({'type': 'sources', 'data': list(source_urls)})}\n\n"
             
-            # Stream the Ollama response
-            stream = ollama.chat(model='llama3', messages=[
-                {'role': 'system', 'content': system_instruction},
-                {'role': 'user', 'content': payload.query}
-            ], stream=True)
+            # Stream the response from Groq's ultra-fast Llama 3 API
+            stream = groq_client.chat.completions.create(
+                model="llama3-8b-8192",
+                messages=[
+                    {'role': 'system', 'content': system_instruction},
+                    {'role': 'user', 'content': payload.query}
+                ],
+                stream=True
+            )
             
             for chunk in stream:
-                yield f"data: {json.dumps({'type': 'text', 'data': chunk['message']['content']})}\n\n"
+                # Groq returns tokens inside the choices[0].delta.content path
+                token = chunk.choices[0].delta.content
+                if token is not None:
+                    yield f"data: {json.dumps({'type': 'text', 'data': token})}\n\n"
                 
             yield "data: [DONE]\n\n"
 
