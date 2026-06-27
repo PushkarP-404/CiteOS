@@ -23,7 +23,17 @@ for var in required_envs:
     if not os.getenv(var):
         raise ValueError(f"CRITICAL: Missing environment variable: {var}")
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="CiteOS AI Vector Service")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize MongoDB Client safely
 username = os.getenv("MONGO_USERNAME")
@@ -36,6 +46,7 @@ MONGO_URI = f"mongodb+srv://{username}:{escaped_password}@{cluster}/?retryWrites
 mongo_client = AsyncIOMotorClient(MONGO_URI)
 mongo_db = mongo_client.get_database("citeos_db") 
 topics_collection = mongo_db.get_collection("topics")
+messages_collection = mongo_db.get_collection("messages")
 
 # Initialize Groq Client
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -175,9 +186,9 @@ async def query_research(payload: QueryRequest):
         query_vector = list(embedding_model.embed([payload.query]))[0].tolist()
 
         # 2. Perform a similarity search in Qdrant, STRICTLY filtered by topicId
-        search_result = qdrant_client.search(
+        search_result = qdrant_client.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=Filter(
                 must=[
                     FieldCondition(
@@ -187,7 +198,7 @@ async def query_research(payload: QueryRequest):
                 ]
             ),
             limit=payload.limit
-        )
+        ).points
 
         # 3. Format the retrieved chunks for the LLM
         results = []
@@ -215,9 +226,9 @@ async def generate_answer(payload: AskRequest):
         # 1. Retrieve relevant context from Qdrant
         query_vector = list(embedding_model.embed([payload.query]))[0].tolist()
         
-        search_result = qdrant_client.search(
+        search_result = qdrant_client.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=Filter(
                 must=[
                     FieldCondition(
@@ -227,7 +238,7 @@ async def generate_answer(payload: AskRequest):
                 ]
             ),
             limit=payload.limit
-        )
+        ).points
 
         # 2. Extract text and URLs from the results
         if not search_result:
@@ -242,24 +253,40 @@ async def generate_answer(payload: AskRequest):
             
         compiled_context = "\n\n".join(context_chunks)
 
-        # 3. Construct the strict RAG Prompt
+        # 3. Retrieve past chat memory (last 6 messages)
+        cursor = messages_collection.find({"topicId": payload.topicId}).sort("_id", -1).limit(6)
+        past_messages = []
+        async for msg in cursor:
+            past_messages.append(msg)
+        past_messages.reverse()
+        
+        memory_context = ""
+        if past_messages:
+            memory_context = "PREVIOUS CONVERSATION HISTORY:\n"
+            for m in past_messages:
+                role = "User" if m["role"] == "user" else "Assistant"
+                memory_context += f"{role}: {m['content']}\n"
+            memory_context += "\n"
+
+        # 4. Construct the strict RAG Prompt
         system_instruction = f"""You are CiteOS, a precision research assistant. 
-        Answer the user's question using ONLY the provided CONTEXT. 
-        If the answer cannot be found in the CONTEXT, you must explicitly state that you do not know. 
+        Answer the user's question using the provided CONTEXT and PREVIOUS CONVERSATION HISTORY. 
+        If the answer cannot be found in the CONTEXT or history, you must explicitly state that you do not know. 
         Do not use outside knowledge. 
         
+        {memory_context}
         CONTEXT:
         {compiled_context}
         """
         
-        # 4. Create an async generator to yield chunks from Groq
+        # 5. Create an async generator to yield chunks from Groq
         async def generate_stream():
             # Send the initial citations first so the UI can display them immediately
             yield f"data: {json.dumps({'type': 'sources', 'data': list(source_urls)})}\n\n"
             
             # Stream the response from Groq's ultra-fast Llama 3 API
             stream = groq_client.chat.completions.create(
-                model="llama3-8b-8192",
+                model="llama-3.1-8b-instant",
                 messages=[
                     {'role': 'system', 'content': system_instruction},
                     {'role': 'user', 'content': payload.query}
@@ -267,20 +294,47 @@ async def generate_answer(payload: AskRequest):
                 stream=True
             )
             
+            full_assistant_response = ""
             for chunk in stream:
                 # Groq returns tokens inside the choices[0].delta.content path
                 token = chunk.choices[0].delta.content
                 if token is not None:
+                    full_assistant_response += token
                     yield f"data: {json.dumps({'type': 'text', 'data': token})}\n\n"
                 
             yield "data: [DONE]\n\n"
+            
+            # Save the interaction to memory asynchronously after streaming
+            await messages_collection.insert_many([
+                {"topicId": payload.topicId, "role": "user", "content": payload.query},
+                {"topicId": payload.topicId, "role": "assistant", "content": full_assistant_response, "sources": list(source_urls)}
+            ])
 
-        # 5. Return the StreamingResponse
+        # 6. Return the StreamingResponse
         return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+
+class TopicCreateRequest(BaseModel):
+    name: str
+
+@app.post("/api/topics")
+async def create_topic(payload: TopicCreateRequest):
+    try:
+        new_topic = {"name": payload.name}
+        result = await topics_collection.insert_one(new_topic)
+        
+        return {
+            "status": "success",
+            "topic": {
+                "id": str(result.inserted_id),
+                "name": payload.name
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/topics")
 async def get_topics():
@@ -296,6 +350,22 @@ async def get_topics():
             })
             
         return {"status": "success", "topics": topics}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/topics/{topicId}/messages")
+async def get_topic_messages(topicId: str):
+    try:
+        cursor = messages_collection.find({"topicId": topicId}).sort("_id", 1)
+        messages = []
+        async for doc in cursor:
+            messages.append({
+                "id": str(doc["_id"]),
+                "role": doc.get("role"),
+                "content": doc.get("content"),
+                "sources": doc.get("sources", [])
+            })
+        return {"status": "success", "messages": messages}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

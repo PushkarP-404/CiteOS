@@ -13,6 +13,8 @@ export default function Home() {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [activeTopicId, setActiveTopicId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
+  const [newTopicName, setNewTopicName] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
     const fetchTopics = async () => {
@@ -33,6 +35,31 @@ export default function Home() {
 
     fetchTopics();
   }, []);
+
+  const handleCreateTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTopicName.trim()) return;
+    
+    setIsCreating(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/topics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newTopicName.trim() })
+      });
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        setTopics([...topics, data.topic]);
+        setActiveTopicId(data.topic.id);
+        setNewTopicName('');
+      }
+    } catch (error) {
+      console.error("Failed to create topic:", error);
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -68,6 +95,31 @@ export default function Home() {
             ))
           )}
         </nav>
+        
+        {/* Create Topic Form */}
+        <form onSubmit={handleCreateTopic} className="mt-auto pt-4 border-t border-gray-200">
+          <label htmlFor="new-topic" className="block text-xs font-medium text-gray-700 mb-1">
+            New Topic
+          </label>
+          <div className="flex space-x-2">
+            <input
+              id="new-topic"
+              type="text"
+              value={newTopicName}
+              onChange={(e) => setNewTopicName(e.target.value)}
+              placeholder="e.g., Quantum Physics"
+              className="flex-1 min-w-0 block w-full px-3 py-2 rounded-md border border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500 text-black"
+              disabled={isCreating}
+            />
+            <button
+              type="submit"
+              disabled={isCreating || !newTopicName.trim()}
+              className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        </form>
       </aside>
 
       {/* Main Chat Interface Panel */}
