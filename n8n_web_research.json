@@ -1,0 +1,191 @@
+{
+  "name": "CiteOS Web Auto-Research (Serper + Jina)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "web-research",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "e45f9fc3-4e42-4f7b-91cc-c9a7566089a8",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [220, 240],
+      "webhookId": "web-research"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "YOUR_SERPER_API_KEY_HERE"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"q\": \"{{ $json.body.topicName }}\"\n}",
+        "options": {}
+      },
+      "id": "0d62c938-f9b6-4bba-9576-9285fb70c2d2",
+      "name": "Search Serper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 240]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "organic",
+        "options": {}
+      },
+      "id": "b3f0907a-d477-4b71-bdf4-d6a6d6d8495a",
+      "name": "Split Out Results",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 3,
+      "position": [660, 240]
+    },
+    {
+      "parameters": {
+        "operation": "limit",
+        "maxItems": 10
+      },
+      "id": "c1f7a18f-7f72-4f6c-bdf4-d6a6d6d8495b",
+      "name": "Limit to Top 10",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 3,
+      "position": [860, 240]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://r.jina.ai/{{ $json.link }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "CiteOS-Bot/1.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4e72a48f-3d66-4c77-bcf4-d6a6d6d8495c",
+      "name": "Extract Full Text (Jina)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1060, 240]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data = $input.item.json.data;\nif (!data || !data.content) {\n  return []; // drop item if no content\n}\n\nreturn {\n  json: {\n    text: data.content,\n    title: data.title || 'Unknown',\n    url: data.url || $('Limit to Top 10').item.json.link,\n    topicId: $('Webhook').first().json.body.topicId\n  }\n};"
+      },
+      "id": "5e72a48f-3d66-4c77-bcf4-d6a6d6d8495d",
+      "name": "Parse Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/api/vectorize",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": [{{ JSON.stringify($json.text) }}],\n  \"url\": \"{{ $json.url }}\",\n  \"topicId\": \"{{ $json.topicId }}\"\n}",
+        "options": {}
+      },
+      "id": "6e72a48f-3d66-4c77-bcf4-d6a6d6d8495e",
+      "name": "Push to CiteOS API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1460, 240]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Search Serper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Serper": {
+      "main": [
+        [
+          {
+            "node": "Split Out Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Results": {
+      "main": [
+        [
+          {
+            "node": "Limit to Top 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit to Top 10": {
+      "main": [
+        [
+          {
+            "node": "Extract Full Text (Jina)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Full Text (Jina)": {
+      "main": [
+        [
+          {
+            "node": "Parse Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Text": {
+      "main": [
+        [
+          {
+            "node": "Push to CiteOS API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

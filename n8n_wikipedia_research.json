@@ -1,11 +1,12 @@
 {
+  "id": "1",
   "name": "CiteOS Wikipedia Auto-Research",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "wikipedia-research",
-        "responseMode": "onReceived",
+        "responseMode": "lastNode",
         "options": {}
       },
       "id": "e45f9fc3-4e42-4f7b-91cc-c9a7566089a8",
@@ -20,8 +21,17 @@
     },
     {
       "parameters": {
-        "url": "=https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={{$json.body.topicName}}&utf8=&format=json",
-        "options": {}
+        "url": "=https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={{encodeURIComponent($json.body.topicName)}}&utf8=&format=json",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "CiteOS-Bot/1.0 (contact@example.com)"
+            }
+          ]
+        }
       },
       "id": "0d62c938-f9b6-4bba-9576-9285fb70c2d2",
       "name": "Search Wikipedia",
@@ -63,7 +73,16 @@
     {
       "parameters": {
         "url": "=https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&titles={{encodeURI($json.title)}}&format=json",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "CiteOS-Bot/1.0 (contact@example.com)"
+            }
+          ]
+        }
       },
       "id": "4e72a48f-3d66-4c77-bcf4-d6a6d6d8495c",
       "name": "Extract Full Text",
@@ -76,6 +95,7 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForEachItem",
         "jsCode": "const pages = $input.item.json.query.pages;\nconst pageId = Object.keys(pages)[0];\nconst text = pages[pageId].extract;\nconst title = pages[pageId].title;\n\nreturn {\n  json: {\n    text: text,\n    title: title,\n    topicId: $('Webhook').first().json.body.topicId\n  }\n};"
       },
       "id": "5e72a48f-3d66-4c77-bcf4-d6a6d6d8495d",

@@ -4,9 +4,10 @@ import { useState, useRef } from 'react';
 
 interface DocumentUploadProps {
   topicId: string;
+  onUploadSuccess?: () => void;
 }
 
-export default function DocumentUpload({ topicId }: DocumentUploadProps) {
+export default function DocumentUpload({ topicId, onUploadSuccess }: DocumentUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | '', message: string }>({ type: '', message: '' });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -37,6 +38,7 @@ export default function DocumentUpload({ topicId }: DocumentUploadProps) {
 
       if (response.ok) {
         setStatus({ type: 'success', message: `Successfully uploaded and processed ${data.chunks_processed} chunks.` });
+        if (onUploadSuccess) onUploadSuccess();
       } else {
         setStatus({ type: 'error', message: data.detail || data.message || 'Upload failed.' });
       }

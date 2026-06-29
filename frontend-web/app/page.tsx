@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import ChatInterface from '@/components/ChatInterface';
 import DocumentUpload from '@/components/DocumentUpload';
 
 interface Topic {
   id: string;
   name: string;
+  sources?: string[];
 }
 
 export default function Home() {
@@ -31,25 +32,25 @@ export default function Home() {
     });
   };
 
-  useEffect(() => {
-    const fetchTopics = async () => {
-      try {
-        const response = await fetch('http://localhost:8000/api/topics');
-        const data = await response.json();
-        
-        if (data.status === 'success' && data.topics.length > 0) {
-          setTopics(data.topics);
-          // Removed auto-select so user sees the welcome cover first
-        }
-      } catch (error) {
-        console.error("Failed to load topics:", error);
-      } finally {
-        setIsLoading(false);
+  const fetchTopics = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/topics');
+      const data = await response.json();
+      
+      if (data.status === 'success' && data.topics.length > 0) {
+        setTopics(data.topics);
+        // Removed auto-select so user sees the welcome cover first
       }
-    };
-
-    fetchTopics();
+    } catch (error) {
+      console.error("Failed to load topics:", error);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchTopics();
+  }, [fetchTopics]);
 
   const handleCreateTopic = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,16 +83,22 @@ export default function Home() {
     
     setIsResearching(true);
     try {
-      // Send webhook to n8n
-      await fetch('http://localhost:5678/webhook/wikipedia-research', {
+      // Trigger research via the backend proxy
+      const response = await fetch(`http://localhost:8000/api/topics/${activeTopicId}/research`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topicId: activeTopicId, topicName })
+        body: JSON.stringify({ topicName })
       });
-      alert('Research complete! The agents have found and processed relevant Wikipedia articles into your database.');
+      
+      if (!response.ok) {
+        throw new Error('Failed to complete research');
+      }
+      
+      alert('Research complete! The agents have found and processed relevant web sources into your database.');
+      fetchTopics();
     } catch (error) {
-      console.error("Webhook failed:", error);
-      alert('Failed to reach the n8n webhook. Ensure your n8n workflow is imported and active!');
+      console.error("Research failed:", error);
+      alert('Failed to complete research. Ensure your backend and n8n workflow are running.');
     } finally {
       setIsResearching(false);
     }
@@ -193,8 +200,22 @@ export default function Home() {
                 </button>
               </header>
               <div className="flex-1 flex flex-col min-h-0 space-y-4">
-                <div className="shrink-0">
-                  <DocumentUpload topicId={activeTopicId} />
+                <div className="shrink-0 flex gap-4">
+                  <div className="flex-1">
+                    <DocumentUpload topicId={activeTopicId} onUploadSuccess={fetchTopics} />
+                  </div>
+                  <div className="w-1/3 bg-white p-4 border border-gray-200 rounded-md shadow-sm">
+                    <h3 className="text-sm font-semibold text-gray-800 mb-2">Collected Sources</h3>
+                    {topics.find(t => t.id === activeTopicId)?.sources?.length ? (
+                      <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside max-h-16 overflow-y-auto">
+                        {topics.find(t => t.id === activeTopicId)?.sources?.map((source, idx) => (
+                          <li key={idx} className="truncate" title={source}>{source}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">No sources collected yet.</p>
+                    )}
+                  </div>
                 </div>
                 <ChatInterface topicId={activeTopicId} />
               </div>

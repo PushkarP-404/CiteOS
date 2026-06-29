@@ -1,4 +1,5 @@
 import os
+import httpx
 from groq import Groq
 import urllib.parse 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
@@ -12,13 +13,14 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from fastembed import TextEmbedding
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson.objectid import ObjectId
 import json
 
 # Load the environment variables
 load_dotenv()
 
 # Strict Environment Validation Guardrail
-required_envs = ["MONGO_USERNAME", "MONGO_PASSWORD", "MONGO_CLUSTER", "GROQ_API_KEY", "QDRANT_URL"]
+required_envs = ["MONGO_USERNAME", "MONGO_PASSWORD", "MONGO_CLUSTER", "GROQ_API_KEY", "QDRANT_URL", "N8N_WEBHOOK_URL"]
 for var in required_envs:
     if not os.getenv(var):
         raise ValueError(f"CRITICAL: Missing environment variable: {var}")
@@ -112,6 +114,10 @@ async def vectorize_and_store(payload: VectorizeRequest):
                 collection_name=COLLECTION_NAME,
                 points=points
             )
+            await topics_collection.update_one(
+                {"_id": ObjectId(payload.topicId)},
+                {"$addToSet": {"sources": payload.url}}
+            )
 
         return {"status": "success", "chunks_processed": len(points)}
 
@@ -166,6 +172,10 @@ async def upload_document(
             qdrant_client.upsert(
                 collection_name=COLLECTION_NAME,
                 points=points
+            )
+            await topics_collection.update_one(
+                {"_id": ObjectId(topicId)},
+                {"$addToSet": {"sources": file.filename}}
             )
 
         return {"status": "success", "chunks_processed": len(points), "filename": file.filename}
@@ -323,7 +333,7 @@ class TopicCreateRequest(BaseModel):
 @app.post("/api/topics")
 async def create_topic(payload: TopicCreateRequest):
     try:
-        new_topic = {"name": payload.name}
+        new_topic = {"name": payload.name, "sources": []}
         result = await topics_collection.insert_one(new_topic)
         
         return {
@@ -336,17 +346,38 @@ async def create_topic(payload: TopicCreateRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class ResearchRequest(BaseModel):
+    topicName: str
+
+@app.post("/api/topics/{topicId}/research")
+async def trigger_research(topicId: str, payload: ResearchRequest):
+    try:
+        webhook_url = os.getenv("N8N_WEBHOOK_URL")
+        async with httpx.AsyncClient() as client:
+            # We set a high timeout because the n8n workflow might take a while to search and vectorize
+            response = await client.post(
+                webhook_url,
+                json={"topicId": topicId, "topicName": payload.topicName},
+                timeout=120.0
+            )
+            response.raise_for_status()
+            
+        return {"status": "success", "message": "Research completed successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/topics")
 async def get_topics():
     try:
         # We only fetch the ID and the name fields to keep the payload light
-        cursor = topics_collection.find({}, {"_id": 1, "name": 1})
+        cursor = topics_collection.find({}, {"_id": 1, "name": 1, "sources": 1})
         topics = []
         
         async for document in cursor:
             topics.append({
                 "id": str(document["_id"]),
-                "name": document.get("name", "Unnamed Topic")
+                "name": document.get("name", "Unnamed Topic"),
+                "sources": document.get("sources", [])
             })
             
         return {"status": "success", "topics": topics}

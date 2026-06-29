@@ -88,12 +88,13 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
               const parsed = JSON.parse(dataStr);
               setMessages(prev => {
                 const newMessages = [...prev];
-                const lastMsg = newMessages[newMessages.length - 1];
+                const lastMsg = { ...newMessages[newMessages.length - 1] };
                 if (parsed.type === 'sources') {
                   lastMsg.sources = parsed.data;
                 } else if (parsed.type === 'text') {
                   lastMsg.content += parsed.data;
                 }
+                newMessages[newMessages.length - 1] = lastMsg;
                 return newMessages;
               });
             } catch (e) {
