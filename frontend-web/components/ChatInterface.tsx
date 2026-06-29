@@ -116,36 +116,36 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
   };
 
   return (
-    <div className="flex flex-col h-[70vh] bg-gray-50 border border-gray-200 rounded-lg shadow-sm">
+    <div className="flex-1 flex flex-col min-h-0 bg-transparent">
       {/* Messages Area */}
-      <div className="flex-1 p-4 overflow-y-auto space-y-6">
+      <div className="flex-1 p-4 overflow-y-auto space-y-8">
         {messages.length === 0 && !isLoading && (
-          <div className="text-center text-gray-500 mt-10">
-            No messages yet. Ask a question to start researching!
+          <div className="text-center font-handwriting text-2xl text-[var(--foreground)] opacity-50 mt-10">
+            No notes here yet. Jot something down!
           </div>
         )}
         
         {messages.map((msg, idx) => (
-          <div key={msg.id || idx} className={`flex flex-col space-y-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+          <div key={msg.id || idx} className="flex flex-col w-full">
             <div 
-              className={`max-w-[85%] p-4 rounded-xl shadow-sm ${
+              className={`p-1 font-handwriting text-2xl leading-[2rem] w-full ${
                 msg.role === 'user' 
-                  ? 'bg-blue-600 text-white rounded-br-none' 
-                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                  ? 'text-blue-700 dark:text-blue-400 font-semibold' 
+                  : 'text-[var(--foreground)]'
               }`}
             >
-              <div className="whitespace-pre-wrap leading-relaxed text-sm">
-                {msg.content}
+              <div className="whitespace-pre-wrap">
+                {msg.role === 'user' ? `Q: ${msg.content}` : `A: ${msg.content}`}
               </div>
               
               {/* Display Sources if Assistant */}
               {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-gray-100">
-                  <h4 className="text-xs font-semibold text-gray-500 mb-1">Sources:</h4>
-                  <ul className="list-disc pl-4 text-xs space-y-1 text-gray-600">
+                <div className="mt-4 pt-2 border-t border-dashed border-[var(--margin-line)] opacity-80">
+                  <h4 className="text-lg font-bold">References:</h4>
+                  <ul className="list-decimal pl-6 space-y-1">
                     {msg.sources.map((url, sIdx) => (
                       <li key={sIdx}>
-                        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all">
+                        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline break-all">
                           {url}
                         </a>
                       </li>
@@ -160,10 +160,10 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
       </div>
 
       {/* Input Area */}
-      <div className="p-4 bg-white border-t border-gray-200 rounded-b-lg">
-        <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+      <div className="p-2 mt-4 border-t-2 border-[var(--margin-line)]">
+        <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 items-end">
           <textarea
-            className="flex-1 p-3 border rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none text-sm text-gray-800"
+            className="flex-1 p-2 bg-transparent border-b-2 border-dashed border-[var(--foreground)] focus:border-blue-500 focus:outline-none resize-none font-handwriting text-2xl leading-relaxed text-[var(--foreground)]"
             rows={2}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -173,17 +173,20 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
                 handleAsk();
               }
             }}
-            placeholder={`Ask CiteOS about topic: ${topicId}... (Press Enter to submit)`}
+            placeholder={`Jot down a question... (Press Enter to submit)`}
             disabled={isLoading}
           />
           <button 
-            className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-md shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-colors sm:self-end"
+            className="px-4 py-2 font-handwriting text-2xl font-bold text-blue-700 dark:text-blue-400 hover:scale-110 transition-transform disabled:opacity-50"
             onClick={handleAsk}
             disabled={isLoading || !query.trim()}
           >
-            {isLoading ? 'Thinking...' : 'Ask'}
+            {isLoading ? '...' : 'Scribble ➔'}
           </button>
         </div>
+        <p className="text-center text-xs text-[var(--foreground)] opacity-60 mt-3 font-sans">
+          CiteOS synthesizes insights from your documents. Verify critical findings against the provided source citations.
+        </p>
       </div>
     </div>
   );

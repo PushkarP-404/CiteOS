@@ -1,26 +1,41 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-handwriting: var(--font-handwriting);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --background: #fdfbf7;
+  --foreground: #1e293b;
+  --line-color: #94a3b840; /* Faint blue-gray */
+  --margin-line: #ef444460; /* Faint red */
+}
+
+/* Add dark mode support using .dark class instead of prefers-color-scheme */
+.dark {
+  --background: #12121c;
+  --foreground: #cbd5e1;
+  --line-color: #33415540;
+  --margin-line: #7f1d1d60;
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
+  /* Lined paper effect */
+  background-image: linear-gradient(transparent 95%, var(--line-color) 100%);
+  background-size: 100% 2rem;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.font-handwriting {
+  font-family: var(--font-handwriting), cursive;
+  font-size: 1.3rem; /* slightly larger for readability */
+}
+
+.notebook-margin {
+  border-right: 2px solid var(--margin-line);
 }

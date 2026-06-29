@@ -15,6 +15,21 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [newTopicName, setNewTopicName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isResearching, setIsResearching] = useState(false);
+
+  // Toggle dark mode by adding/removing 'dark' class on HTML element
+  const toggleDarkMode = () => {
+    setIsDarkMode(prev => {
+      const next = !prev;
+      if (next) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const fetchTopics = async () => {
@@ -24,7 +39,7 @@ export default function Home() {
         
         if (data.status === 'success' && data.topics.length > 0) {
           setTopics(data.topics);
-          setActiveTopicId(data.topics[0].id); // Auto-select the first topic
+          // Removed auto-select so user sees the welcome cover first
         }
       } catch (error) {
         console.error("Failed to load topics:", error);
@@ -61,6 +76,27 @@ export default function Home() {
     }
   };
 
+  const handleAutoResearch = async () => {
+    if (!activeTopicId) return;
+    const topicName = topics.find(t => t.id === activeTopicId)?.name;
+    
+    setIsResearching(true);
+    try {
+      // Send webhook to n8n
+      await fetch('http://localhost:5678/webhook/wikipedia-research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topicId: activeTopicId, topicName })
+      });
+      alert('Research complete! The agents have found and processed relevant Wikipedia articles into your database.');
+    } catch (error) {
+      console.error("Webhook failed:", error);
+      alert('Failed to reach the n8n webhook. Ensure your n8n workflow is imported and active!');
+    } finally {
+      setIsResearching(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -70,26 +106,42 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar for Topic Selection */}
-      <aside className="w-64 bg-white border-r border-gray-200 p-4 space-y-4 flex flex-col shadow-sm z-10">
-        <div className="font-bold text-lg text-gray-800 border-b pb-2">
-          CiteOS Workspace
+    <main className="h-screen flex bg-transparent overflow-hidden relative">
+      {/* CiteOS Background Logo / Home Button */}
+      <button 
+        onClick={() => setActiveTopicId('')}
+        className="absolute top-8 right-12 font-handwriting text-5xl font-bold text-[var(--foreground)] opacity-30 hover:opacity-70 transition-opacity select-none cursor-pointer z-50"
+      >
+        Cite<span className="text-orange-500">OS</span>
+      </button>
+
+      {/* Sidebar for Topic Selection - Acts as the Red Margin */}
+      <aside className="w-64 notebook-margin p-6 space-y-6 flex flex-col z-10 h-full bg-transparent overflow-y-auto shrink-0">
+        <div className="flex items-center justify-between font-handwriting font-bold text-2xl text-[var(--foreground)] border-b border-[var(--margin-line)] pb-2">
+          <span>Topics</span>
+          <button 
+            onClick={toggleDarkMode}
+            className="text-sm px-2 py-1 border border-[var(--foreground)] rounded-full hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-colors font-sans"
+            title="Toggle Dark Mode"
+          >
+            {isDarkMode ? '🌙' : '☀️'}
+          </button>
         </div>
-        <nav className="flex-1 space-y-1">
+        <nav className="flex-1 space-y-2 pt-4">
           {topics.length === 0 ? (
-            <p className="text-sm text-gray-400 italic">No topics found in MongoDB.</p>
+            <p className="text-sm font-handwriting italic opacity-60">No topics found...</p>
           ) : (
             topics.map((topic) => (
               <button
                 key={topic.id}
                 onClick={() => setActiveTopicId(topic.id)}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`w-full text-left px-3 py-1 text-xl font-handwriting transition-all relative ${
                   activeTopicId === topic.id
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    ? 'text-blue-600 font-bold scale-105 ml-2'
+                    : 'text-[var(--foreground)] opacity-70 hover:opacity-100 hover:ml-1'
                 }`}
               >
+                {activeTopicId === topic.id && <span className="absolute -left-3">»</span>}
                 {topic.name}
               </button>
             ))
@@ -97,9 +149,9 @@ export default function Home() {
         </nav>
         
         {/* Create Topic Form */}
-        <form onSubmit={handleCreateTopic} className="mt-auto pt-4 border-t border-gray-200">
-          <label htmlFor="new-topic" className="block text-xs font-medium text-gray-700 mb-1">
-            New Topic
+        <form onSubmit={handleCreateTopic} className="mt-auto pt-6 border-t border-[var(--margin-line)]">
+          <label htmlFor="new-topic" className="block text-lg font-handwriting mb-2">
+            + Add Topic
           </label>
           <div className="flex space-x-2">
             <input
@@ -107,38 +159,67 @@ export default function Home() {
               type="text"
               value={newTopicName}
               onChange={(e) => setNewTopicName(e.target.value)}
-              placeholder="e.g., Quantum Physics"
-              className="flex-1 min-w-0 block w-full px-3 py-2 rounded-md border border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500 text-black"
+              placeholder="e.g., Space Travel"
+              className="flex-1 min-w-0 block w-full px-2 py-1 bg-transparent border-b border-dashed border-[var(--foreground)] text-lg font-handwriting focus:outline-none focus:border-blue-500"
               disabled={isCreating}
             />
             <button
               type="submit"
               disabled={isCreating || !newTopicName.trim()}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              className="px-2 text-xl font-handwriting text-blue-600 hover:text-blue-800 disabled:opacity-50"
             >
-              Add
+              ✓
             </button>
           </div>
         </form>
       </aside>
 
       {/* Main Chat Interface Panel */}
-      <section className="flex-1 flex flex-col justify-center p-8">
-        <div className="w-full max-w-3xl mx-auto space-y-4">
-          <header className="mb-4">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Research Assistant
-            </h1>
-            <p className="text-xs text-gray-500 font-mono bg-gray-200 inline-block px-2 py-1 rounded">
-              Active Context ID: {activeTopicId || 'None'}
-            </p>
-          </header>
-          
-          {activeTopicId && (
+      <section className="flex-1 flex flex-col p-8 pt-12 bg-transparent h-full overflow-hidden">
+        <div className="w-full max-w-4xl mx-auto flex flex-col h-full space-y-4">
+          {activeTopicId ? (
             <>
-              <DocumentUpload topicId={activeTopicId} />
-              <ChatInterface topicId={activeTopicId} />
+              <header className="shrink-0 mb-4 flex justify-between items-end border-b-2 border-dashed border-[var(--foreground)] pb-4">
+                <h1 className="text-4xl font-handwriting font-bold text-[var(--foreground)]">
+                  Research Notes: {topics.find(t => t.id === activeTopicId)?.name || 'Select a topic'}
+                </h1>
+                <button
+                  onClick={handleAutoResearch}
+                  disabled={isResearching}
+                  className="px-4 py-2 font-handwriting text-2xl font-bold bg-[var(--line-color)] border-2 border-[var(--margin-line)] text-[var(--foreground)] hover:bg-orange-200 dark:hover:bg-orange-900 transition-colors transform -rotate-2 hover:rotate-0 disabled:opacity-50"
+                  title="Command AI to scrape the web for documents"
+                >
+                  {isResearching ? 'Scraping Web...' : 'Auto-Research Web'}
+                </button>
+              </header>
+              <div className="flex-1 flex flex-col min-h-0 space-y-4">
+                <div className="shrink-0">
+                  <DocumentUpload topicId={activeTopicId} />
+                </div>
+                <ChatInterface topicId={activeTopicId} />
+              </div>
             </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center space-y-8 opacity-80 mt-10">
+              <h2 className="text-6xl font-handwriting font-bold mb-8">
+                Welcome to Cite<span className="text-orange-500">OS</span>
+              </h2>
+              
+              <div className="bg-[var(--line-color)] p-8 rounded-lg shadow-sm border border-[var(--margin-line)] transform -rotate-1 hover:rotate-0 transition-transform">
+                <h3 className="text-3xl font-handwriting font-bold mb-6 underline decoration-wavy decoration-blue-500">
+                  How to Use:
+                </h3>
+                <ul className="text-3xl font-handwriting space-y-6 max-w-lg">
+                  <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">1.</span> Create a topic in the margin</li>
+                  <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">2.</span> Upload reference materials</li>
+                  <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">3.</span> Ask questions!</li>
+                </ul>
+              </div>
+
+              <p className="text-2xl font-handwriting mt-12 text-center max-w-md border-t-2 border-dashed border-[var(--foreground)] pt-6">
+                * All answers are strictly grounded in your documents with exact citations. *
+              </p>
+            </div>
           )}
         </div>
       </section>
