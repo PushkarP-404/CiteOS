@@ -174,7 +174,12 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 
 # Initialize Qdrant Client via Environment Variable
-qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
+qdrant_url = os.getenv("QDRANT_URL")
+qdrant_api_key = os.getenv("QDRANT_API_KEY")
+if qdrant_api_key:
+    qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+else:
+    qdrant_client = QdrantClient(url=qdrant_url)
 COLLECTION_NAME = "citeos_research"
 
 # Ensure the Qdrant collection exists on startup
