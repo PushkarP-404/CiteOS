@@ -1,5 +1,7 @@
 <img width="1301" height="161" alt="header" src="https://github.com/user-attachments/assets/01c479f1-bdb6-47f6-a616-d6d1a0308397" />
+
 # CiteOS
+
 An autonomous research engine utilizing agentic web scraping and citation-enforced RAG to generate perfectly sourced, hallucination-free reports.
 
 ## Architecture Overview
