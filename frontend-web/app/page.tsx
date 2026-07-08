@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import ChatInterface from '@/components/ChatInterface';
 import DocumentUpload from '@/components/DocumentUpload';
+import { getAuthToken, getAuthHeaders, clearAuthToken } from '@/lib/auth';
 
 interface Topic {
   id: string;
@@ -18,6 +20,18 @@ export default function Home() {
   const [isCreating, setIsCreating] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [citationStyle, setCitationStyle] = useState('apa');
+  const router = useRouter();
+
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) {
+      router.push('/login');
+    } else {
+      setIsAuthenticated(true);
+    }
+  }, [router]);
 
   // Toggle dark mode by adding/removing 'dark' class on HTML element
   const toggleDarkMode = () => {
@@ -34,19 +48,25 @@ export default function Home() {
 
   const fetchTopics = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/topics');
+      const response = await fetch('http://localhost:8000/api/topics', {
+        headers: getAuthHeaders()
+      });
+      if (response.status === 401) {
+        clearAuthToken();
+        router.push('/login');
+        return;
+      }
       const data = await response.json();
       
       if (data.status === 'success' && data.topics.length > 0) {
         setTopics(data.topics);
-        // Removed auto-select so user sees the welcome cover first
       }
     } catch (error) {
       console.error("Failed to load topics:", error);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     fetchTopics();
@@ -60,7 +80,10 @@ export default function Home() {
     try {
       const response = await fetch('http://localhost:8000/api/topics', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({ name: newTopicName.trim() })
       });
       const data = await response.json();
@@ -86,7 +109,10 @@ export default function Home() {
       // Trigger research via the backend proxy
       const response = await fetch(`http://localhost:8000/api/topics/${activeTopicId}/research`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({ topicName })
       });
       
@@ -104,13 +130,42 @@ export default function Home() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <p className="text-gray-500 font-medium animate-pulse">Loading Workspace Data...</p>
       </div>
     );
   }
+
+  const handleLogout = () => {
+    clearAuthToken();
+    router.push('/login');
+  };
+
+  const handleExport = async () => {
+    if (!activeTopicId) return;
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/topics/${activeTopicId}/export?style=${citationStyle}`,
+        { headers: getAuthHeaders() }
+      );
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const topicName = topics.find(t => t.id === activeTopicId)?.name || 'notes';
+      a.download = `${topicName.replace(/\s+/g, '_')}_notes.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Failed to export notes.');
+    }
+  };
 
   return (
     <main className="h-screen flex bg-transparent overflow-hidden relative">
@@ -126,13 +181,22 @@ export default function Home() {
       <aside className="w-64 notebook-margin p-6 space-y-6 flex flex-col z-10 h-full bg-transparent overflow-y-auto shrink-0">
         <div className="flex items-center justify-between font-handwriting font-bold text-2xl text-[var(--foreground)] border-b border-[var(--margin-line)] pb-2">
           <span>Topics</span>
-          <button 
-            onClick={toggleDarkMode}
-            className="text-sm px-2 py-1 border border-[var(--foreground)] rounded-full hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-colors font-sans"
-            title="Toggle Dark Mode"
-          >
-            {isDarkMode ? '🌙' : '☀️'}
-          </button>
+          <div className="flex space-x-2">
+            <button 
+              onClick={toggleDarkMode}
+              className="text-sm px-2 py-1 border border-[var(--foreground)] rounded-full hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-colors font-sans"
+              title="Toggle Dark Mode"
+            >
+              {isDarkMode ? '🌙' : '☀️'}
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="text-sm px-2 py-1 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors font-sans"
+              title="Log Out"
+            >
+              ⎋
+            </button>
+          </div>
         </div>
         <nav className="flex-1 space-y-2 pt-4">
           {topics.length === 0 ? (
@@ -190,14 +254,37 @@ export default function Home() {
                 <h1 className="text-4xl font-handwriting font-bold text-[var(--foreground)]">
                   Research Notes: {topics.find(t => t.id === activeTopicId)?.name || 'Select a topic'}
                 </h1>
-                <button
-                  onClick={handleAutoResearch}
-                  disabled={isResearching}
-                  className="px-4 py-2 font-handwriting text-2xl font-bold bg-[var(--line-color)] border-2 border-[var(--margin-line)] text-[var(--foreground)] hover:bg-orange-200 dark:hover:bg-orange-900 transition-colors transform -rotate-2 hover:rotate-0 disabled:opacity-50"
-                  title="Command AI to scrape the web for documents"
-                >
-                  {isResearching ? 'Scraping Web...' : 'Auto-Research Web'}
-                </button>
+                <div className="flex items-center gap-3">
+                  {/* Citation Style Picker */}
+                  <select
+                    value={citationStyle}
+                    onChange={(e) => setCitationStyle(e.target.value)}
+                    className="px-2 py-1 font-sans text-sm border-2 border-dashed border-[var(--foreground)] bg-transparent text-[var(--foreground)] rounded cursor-pointer focus:outline-none focus:border-blue-500"
+                    title="Citation Format"
+                  >
+                    <option value="apa">APA</option>
+                    <option value="mla">MLA</option>
+                    <option value="chicago">Chicago</option>
+                    <option value="ieee">IEEE</option>
+                  </select>
+
+                  <button
+                    onClick={handleExport}
+                    className="px-3 py-2 font-handwriting text-xl font-bold bg-[var(--line-color)] border-2 border-[var(--margin-line)] text-[var(--foreground)] hover:bg-blue-200 dark:hover:bg-blue-900 transition-colors transform rotate-1 hover:rotate-0"
+                    title="Export research notes as Markdown"
+                  >
+                    Export Notes ↓
+                  </button>
+
+                  <button
+                    onClick={handleAutoResearch}
+                    disabled={isResearching}
+                    className="px-4 py-2 font-handwriting text-2xl font-bold bg-[var(--line-color)] border-2 border-[var(--margin-line)] text-[var(--foreground)] hover:bg-orange-200 dark:hover:bg-orange-900 transition-colors transform -rotate-2 hover:rotate-0 disabled:opacity-50"
+                    title="Command AI to scrape the web for documents"
+                  >
+                    {isResearching ? 'Scraping Web...' : 'Auto-Research Web'}
+                  </button>
+                </div>
               </header>
               <div className="flex-1 flex flex-col min-h-0 space-y-4">
                 <div className="shrink-0 flex gap-4">
@@ -217,7 +304,7 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-                <ChatInterface topicId={activeTopicId} />
+                <ChatInterface topicId={activeTopicId} citationStyle={citationStyle} />
               </div>
             </>
           ) : (

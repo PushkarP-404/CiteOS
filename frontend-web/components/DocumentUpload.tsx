@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from 'react';
+import { getAuthHeaders } from '@/lib/auth';
 
 interface DocumentUploadProps {
   topicId: string;
@@ -31,6 +32,7 @@ export default function DocumentUpload({ topicId, onUploadSuccess }: DocumentUpl
     try {
       const response = await fetch('http://localhost:8000/api/upload', {
         method: 'POST',
+        headers: getAuthHeaders(),
         body: formData,
       });
 

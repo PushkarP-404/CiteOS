@@ -70,6 +70,15 @@
       "parameters": {
         "method": "POST",
         "url": "http://host.docker.internal:8000/api/vectorize",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-token",
+              "value": "static_internal_token_citeos_123"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"text\": [{{ JSON.stringify($json.text) }}],\n  \"url\": \"{{ $json.url }}\",\n  \"topicId\": \"{{ $json.topicId }}\"\n}",

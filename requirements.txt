@@ -11,3 +11,6 @@ groq
 pymupdf
 python-multipart
 httpx
+passlib
+bcrypt==3.1.7
+python-jose[cryptography]

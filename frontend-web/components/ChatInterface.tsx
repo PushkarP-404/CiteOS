@@ -1,10 +1,25 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
+import { getAuthHeaders } from '@/lib/auth';
 
 // Define the TypeScript contract for the component props
 interface ChatInterfaceProps {
   topicId: string;
+  citationStyle: string;
+}
+
+interface SourceDetail {
+  url: string;
+  title: string;
+  score: number;
+  matchingChunks: number;
+  citations: {
+    apa: string;
+    mla: string;
+    chicago: string;
+    ieee: string;
+  };
 }
 
 interface Message {
@@ -12,9 +27,10 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   sources?: string[];
+  sourceDetails?: SourceDetail[];
 }
 
-export default function ChatInterface({ topicId }: ChatInterfaceProps) {
+export default function ChatInterface({ topicId, citationStyle }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -24,7 +40,9 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/topics/${topicId}/messages`);
+        const response = await fetch(`http://localhost:8000/api/topics/${topicId}/messages`, {
+          headers: getAuthHeaders()
+        });
         const data = await response.json();
         if (data.status === 'success') {
           setMessages(data.messages);
@@ -40,10 +58,10 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
     }
   }, [topicId]);
 
-  // Scroll to bottom when messages update
+  // Scroll to bottom only when a new message is added, not during streaming
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length]);
 
   const handleAsk = async () => {
     if (!query.trim()) return;
@@ -53,14 +71,17 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
     // Add user message to UI immediately
     setMessages(prev => [...prev, { role: 'user', content: userQuery }]);
     // Add empty assistant message placeholder
-    setMessages(prev => [...prev, { role: 'assistant', content: '', sources: [] }]);
+    setMessages(prev => [...prev, { role: 'assistant', content: '', sources: [], sourceDetails: [] }]);
     
     setIsLoading(true);
 
     try {
       const response = await fetch('http://localhost:8000/api/ask', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({
           query: userQuery,
           topicId: topicId
@@ -89,7 +110,9 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
               setMessages(prev => {
                 const newMessages = [...prev];
                 const lastMsg = { ...newMessages[newMessages.length - 1] };
-                if (parsed.type === 'sources') {
+                if (parsed.type === 'source_details') {
+                  lastMsg.sourceDetails = parsed.data;
+                } else if (parsed.type === 'sources') {
                   lastMsg.sources = parsed.data;
                 } else if (parsed.type === 'text') {
                   lastMsg.content += parsed.data;
@@ -116,6 +139,20 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
     }
   };
 
+  const getQualityColor = (score: number) => {
+    if (score >= 75) return 'bg-green-500';
+    if (score >= 50) return 'bg-yellow-500';
+    if (score >= 25) return 'bg-orange-500';
+    return 'bg-red-400';
+  };
+
+  const getQualityLabel = (score: number) => {
+    if (score >= 75) return 'Strong';
+    if (score >= 50) return 'Moderate';
+    if (score >= 25) return 'Weak';
+    return 'Low';
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-transparent">
       {/* Messages Area */}
@@ -139,8 +176,63 @@ export default function ChatInterface({ topicId }: ChatInterfaceProps) {
                 {msg.role === 'user' ? `Q: ${msg.content}` : `A: ${msg.content}`}
               </div>
               
-              {/* Display Sources if Assistant */}
-              {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+              {/* Rich Source Details with Quality Scoring */}
+              {msg.role === 'assistant' && msg.sourceDetails && msg.sourceDetails.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-dashed border-[var(--margin-line)]">
+                  <h4 className="text-lg font-bold mb-3 font-sans">References</h4>
+                  <div className="space-y-3">
+                    {msg.sourceDetails.map((source, sIdx) => (
+                      <div key={sIdx} className="p-3 border border-dashed border-[var(--margin-line)] rounded-md bg-[var(--line-color)] bg-opacity-30">
+                        {/* Citation Text */}
+                        <p className="text-base font-sans leading-snug text-[var(--foreground)] opacity-90 mb-2">
+                          [{sIdx + 1}] {source.citations[citationStyle as keyof typeof source.citations] || source.citations.apa}
+                        </p>
+                        
+                        {/* Quality Bar + Metadata Row */}
+                        <div className="flex items-center gap-3 text-sm font-sans">
+                          {/* Quality Score Bar */}
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="text-xs opacity-60 whitespace-nowrap">
+                              Quality:
+                            </span>
+                            <div className="flex-1 max-w-[120px] h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all ${getQualityColor(source.score)}`}
+                                style={{ width: `${source.score}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-bold ${
+                              source.score >= 75 ? 'text-green-600 dark:text-green-400' :
+                              source.score >= 50 ? 'text-yellow-600 dark:text-yellow-400' :
+                              'text-orange-600 dark:text-orange-400'
+                            }`}>
+                              {source.score}% {getQualityLabel(source.score)}
+                            </span>
+                          </div>
+                          
+                          {/* Matching Chunks */}
+                          <span className="text-xs opacity-50">
+                            {source.matchingChunks} chunk{source.matchingChunks > 1 ? 's' : ''} matched
+                          </span>
+                          
+                          {/* Link */}
+                          <a 
+                            href={source.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+                          >
+                            Open →
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Fallback: plain sources for older messages without sourceDetails */}
+              {msg.role === 'assistant' && (!msg.sourceDetails || msg.sourceDetails.length === 0) && msg.sources && msg.sources.length > 0 && (
                 <div className="mt-4 pt-2 border-t border-dashed border-[var(--margin-line)] opacity-80">
                   <h4 className="text-lg font-bold">References:</h4>
                   <ul className="list-decimal pl-6 space-y-1">
