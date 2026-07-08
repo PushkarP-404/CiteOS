@@ -22,6 +22,7 @@ export default function Home() {
   const [isResearching, setIsResearching] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [citationStyle, setCitationStyle] = useState('apa');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -48,7 +49,8 @@ export default function Home() {
 
   const fetchTopics = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/topics', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/api/topics`, {
         headers: getAuthHeaders()
       });
       if (response.status === 401) {
@@ -78,7 +80,8 @@ export default function Home() {
     
     setIsCreating(true);
     try {
-      const response = await fetch('http://localhost:8000/api/topics', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/api/topics`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -107,7 +110,8 @@ export default function Home() {
     setIsResearching(true);
     try {
       // Trigger research via the backend proxy
-      const response = await fetch(`http://localhost:8000/api/topics/${activeTopicId}/research`, {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/api/topics/${activeTopicId}/research`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -146,8 +150,9 @@ export default function Home() {
   const handleExport = async () => {
     if (!activeTopicId) return;
     try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       const response = await fetch(
-        `http://localhost:8000/api/topics/${activeTopicId}/export?style=${citationStyle}`,
+        `${API_URL}/api/topics/${activeTopicId}/export?style=${citationStyle}`,
         { headers: getAuthHeaders() }
       );
       if (!response.ok) throw new Error('Export failed');
@@ -177,8 +182,16 @@ export default function Home() {
         Cite<span className="text-orange-500">OS</span>
       </button>
 
+      {/* Mobile Sidebar Backdrop */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/20 dark:bg-black/40 z-20 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar for Topic Selection - Acts as the Red Margin */}
-      <aside className="w-64 notebook-margin p-6 space-y-6 flex flex-col z-10 h-full bg-transparent overflow-y-auto shrink-0">
+      <aside className={`absolute md:relative w-64 notebook-margin p-6 space-y-6 flex flex-col z-30 h-full bg-[var(--background)] overflow-y-auto shrink-0 transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="flex items-center justify-between font-handwriting font-bold text-2xl text-[var(--foreground)] border-b border-[var(--margin-line)] pb-2">
           <span>Topics</span>
           <div className="flex space-x-2">
@@ -246,8 +259,19 @@ export default function Home() {
       </aside>
 
       {/* Main Chat Interface Panel */}
-      <section className="flex-1 flex flex-col p-8 pt-12 bg-transparent h-full overflow-hidden">
-        <div className="w-full max-w-4xl mx-auto flex flex-col h-full space-y-4">
+      <section className="flex-1 flex flex-col p-8 pt-12 bg-transparent h-full overflow-hidden relative">
+        {/* Hamburger Menu for Mobile */}
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          className="absolute top-4 left-4 z-10 md:hidden text-[var(--foreground)] opacity-70 hover:opacity-100"
+          title="Open Topics"
+        >
+          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+
+        <div className="w-full max-w-4xl mx-auto flex flex-col h-full space-y-4 pt-6 md:pt-0">
           {activeTopicId ? (
             <>
               <header className="shrink-0 mb-4 flex justify-between items-end border-b-2 border-dashed border-[var(--foreground)] pb-4">

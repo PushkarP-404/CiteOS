@@ -30,7 +30,8 @@ export default function DocumentUpload({ topicId, onUploadSuccess }: DocumentUpl
     formData.append('topicId', topicId);
 
     try {
-      const response = await fetch('http://localhost:8000/api/upload', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/api/upload`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: formData,
