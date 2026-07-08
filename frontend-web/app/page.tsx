@@ -173,11 +173,11 @@ export default function Home() {
   };
 
   return (
-    <main className="h-screen flex bg-transparent overflow-hidden relative">
+    <main className="h-[100dvh] flex bg-transparent overflow-hidden relative">
       {/* CiteOS Background Logo / Home Button */}
       <button 
         onClick={() => setActiveTopicId('')}
-        className="absolute top-8 right-12 font-handwriting text-5xl font-bold text-[var(--foreground)] opacity-30 hover:opacity-70 transition-opacity select-none cursor-pointer z-50"
+        className="absolute top-4 right-4 md:top-8 md:right-12 font-handwriting text-3xl md:text-5xl font-bold text-[var(--foreground)] opacity-30 hover:opacity-70 transition-opacity select-none cursor-pointer z-50"
       >
         Cite<span className="text-orange-500">OS</span>
       </button>
@@ -259,7 +259,7 @@ export default function Home() {
       </aside>
 
       {/* Main Chat Interface Panel */}
-      <section className="flex-1 flex flex-col p-8 pt-12 bg-transparent h-full overflow-hidden relative">
+      <section className="flex-1 flex flex-col p-4 md:p-8 pt-14 md:pt-12 bg-transparent h-full overflow-hidden relative">
         {/* Hamburger Menu for Mobile */}
         <button
           onClick={() => setIsSidebarOpen(true)}
@@ -271,14 +271,14 @@ export default function Home() {
           </svg>
         </button>
 
-        <div className="w-full max-w-4xl mx-auto flex flex-col h-full space-y-4 pt-6 md:pt-0">
+        <div className="w-full max-w-4xl mx-auto flex flex-col h-full space-y-4 pt-4 md:pt-0">
           {activeTopicId ? (
             <>
-              <header className="shrink-0 mb-4 flex justify-between items-end border-b-2 border-dashed border-[var(--foreground)] pb-4">
-                <h1 className="text-4xl font-handwriting font-bold text-[var(--foreground)]">
+              <header className="shrink-0 mb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-3 border-b-2 border-dashed border-[var(--foreground)] pb-4">
+                <h1 className="text-3xl md:text-4xl font-handwriting font-bold text-[var(--foreground)] pr-16 md:pr-0">
                   Research Notes: {topics.find(t => t.id === activeTopicId)?.name || 'Select a topic'}
                 </h1>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 md:gap-3">
                   {/* Citation Style Picker */}
                   <select
                     value={citationStyle}

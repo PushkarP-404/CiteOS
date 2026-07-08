@@ -57,14 +57,14 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="h-screen flex items-center justify-center bg-transparent relative overflow-hidden">
+    <main className="h-[100dvh] flex items-center justify-center bg-transparent relative overflow-hidden px-4">
       {/* CiteOS Background Logo */}
-      <div className="absolute top-8 left-1/2 transform -translate-x-1/2 font-handwriting text-6xl font-bold text-[var(--foreground)] opacity-90 select-none pointer-events-none z-0">
+      <div className="absolute top-8 left-1/2 transform -translate-x-1/2 font-handwriting text-5xl md:text-6xl font-bold text-[var(--foreground)] opacity-90 select-none pointer-events-none z-0">
         Cite<span className="text-orange-500">OS</span>
       </div>
 
-      <div className="w-full max-w-md p-8 bg-[var(--background)] rounded-lg shadow-sm border-2 border-dashed border-[var(--margin-line)] z-10 transform rotate-1">
-        <h2 className="text-4xl font-handwriting font-bold mb-6 text-center text-[var(--foreground)] underline decoration-wavy decoration-blue-500">
+      <div className="w-full max-w-md p-6 md:p-8 bg-[var(--background)] rounded-lg shadow-sm border-2 border-dashed border-[var(--margin-line)] z-10 transform rotate-1">
+        <h2 className="text-3xl md:text-4xl font-handwriting font-bold mb-6 text-center text-[var(--foreground)] underline decoration-wavy decoration-blue-500">
           {isLogin ? 'Welcome Back' : 'Join CiteOS'}
         </h2>
 
