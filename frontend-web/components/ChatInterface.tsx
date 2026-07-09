@@ -256,9 +256,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
       {/* Input Area */}
       <div className="p-2 mt-4 border-t-2 border-[var(--margin-line)]">
-        <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 items-end">
+        <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 items-stretch sm:items-end w-full">
           <textarea
-            className="flex-1 p-2 bg-transparent border-b-2 border-dashed border-[var(--foreground)] focus:border-blue-500 focus:outline-none resize-none font-handwriting text-2xl leading-relaxed text-[var(--foreground)]"
+            className="flex-1 w-full p-2 bg-transparent border-b-2 border-dashed border-[var(--foreground)] focus:border-blue-500 focus:outline-none resize-none font-handwriting text-2xl leading-relaxed text-[var(--foreground)]"
             rows={2}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -272,7 +272,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             disabled={isLoading}
           />
           <button 
-            className="px-4 py-2 font-handwriting text-2xl font-bold text-blue-700 dark:text-blue-400 hover:scale-110 transition-transform disabled:opacity-50"
+            className="w-full sm:w-auto px-4 py-2 font-handwriting text-2xl font-bold text-blue-700 dark:text-blue-400 hover:scale-110 transition-transform disabled:opacity-50"
             onClick={handleAsk}
             disabled={isLoading || !query.trim()}
           >

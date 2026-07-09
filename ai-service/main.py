@@ -1,4 +1,5 @@
 import os
+import asyncio
 import httpx
 from groq import Groq
 import urllib.parse 
@@ -556,6 +557,9 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
                 )
                 if scholar_resp.status_code == 200:
                     papers = scholar_resp.json().get("data", [])
+                    all_scholar_points = []
+                    all_scholar_urls = set()
+                    
                     for paper in papers:
                         abstract = paper.get("abstract")
                         if not abstract:
@@ -572,10 +576,10 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
 
                         chunks = text_splitter.split_text(abstract)
                         embeddings = list(embedding_model.embed(chunks))
-                        points = []
+                        
                         for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
                             point_id = str(abs(hash(f"{topicId}-{hash(url)}-scholar-{i}")))
-                            points.append(PointStruct(
+                            all_scholar_points.append(PointStruct(
                                 id=int(point_id),
                                 vector=vector.tolist(),
                                 payload={
@@ -584,13 +588,15 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
                                     "year": paper_year, "sourceType": "scholar"
                                 }
                             ))
-                        if points:
-                            qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points)
-                            await topics_collection.update_one(
-                                {"_id": ObjectId(topicId)},
-                                {"$addToSet": {"sources": url}}
-                            )
-                            sources_found += 1
+                        all_scholar_urls.add(url)
+                    
+                    if all_scholar_points:
+                        await asyncio.to_thread(qdrant_client.upsert, collection_name=COLLECTION_NAME, points=all_scholar_points)
+                        await topics_collection.update_one(
+                            {"_id": ObjectId(topicId)},
+                            {"$addToSet": {"sources": {"$each": list(all_scholar_urls)}}}
+                        )
+                        sources_found += len(all_scholar_urls)
                 else:
                     print(f"[RESEARCH] Semantic Scholar returned {scholar_resp.status_code}, skipping.")
             except Exception as e:
@@ -609,6 +615,9 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
                 )
                 if wiki_search_resp.status_code == 200:
                     search_results = wiki_search_resp.json().get("query", {}).get("search", [])
+                    all_wiki_points = []
+                    all_wiki_urls = set()
+                    
                     for result in search_results[:3]:  # Top 3 Wikipedia articles
                         wiki_title = result.get("title", "")
                         # Fetch full article text
@@ -628,14 +637,17 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
                             if not full_text.strip():
                                 continue
 
+                            # Truncate to prevent OOM / large payload timeouts on free tier
+                            full_text = full_text[:15000]
+
                             url = f"https://en.wikipedia.org/wiki/{wiki_title.replace(' ', '_')}"
                             today_str = date.today().strftime("%B %d, %Y")
                             chunks = text_splitter.split_text(full_text)
                             embeddings = list(embedding_model.embed(chunks))
-                            points = []
+                            
                             for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
                                 point_id = str(abs(hash(f"{topicId}-{hash(url)}-wiki-{i}")))
-                                points.append(PointStruct(
+                                all_wiki_points.append(PointStruct(
                                     id=int(point_id),
                                     vector=vector.tolist(),
                                     payload={
@@ -644,13 +656,15 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
                                         "accessDate": today_str
                                     }
                                 ))
-                            if points:
-                                qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points)
-                                await topics_collection.update_one(
-                                    {"_id": ObjectId(topicId)},
-                                    {"$addToSet": {"sources": url}}
-                                )
-                                sources_found += 1
+                            all_wiki_urls.add(url)
+                            
+                    if all_wiki_points:
+                        await asyncio.to_thread(qdrant_client.upsert, collection_name=COLLECTION_NAME, points=all_wiki_points)
+                        await topics_collection.update_one(
+                            {"_id": ObjectId(topicId)},
+                            {"$addToSet": {"sources": {"$each": list(all_wiki_urls)}}}
+                        )
+                        sources_found += len(all_wiki_urls)
             except Exception as e:
                 print(f"[RESEARCH] Wikipedia failed: {e}. Skipping.")
 
@@ -733,8 +747,8 @@ async def export_topic(topicId: str, style: str = "apa", userId: str = Depends(g
                 md += f"## Q: {msg.get('content', '')}\n\n"
             elif msg.get("role") == "assistant":
                 md += f"{msg.get('content', '')}\n\n"
-                # Collect source details for bibliography
-                source_details = msg.get("sourceDetails", [])
+                # Collect source details for bibliography safely
+                source_details = msg.get("sourceDetails") or []
                 if source_details:
                     md += "**Sources used:**\n"
                     for sd in source_details:
@@ -755,7 +769,8 @@ async def export_topic(topicId: str, style: str = "apa", userId: str = Depends(g
                     md += "\n"
                 # Fallback for older messages without sourceDetails
                 elif msg.get("sources"):
-                    for src_url in msg["sources"]:
+                    sources_list = msg.get("sources") or []
+                    for src_url in sources_list:
                         if src_url not in url_to_index:
                             url_to_index[src_url] = citation_index
                             all_sources[src_url] = format_citation({"url": src_url, "title": src_url}, style)
@@ -769,15 +784,19 @@ async def export_topic(topicId: str, style: str = "apa", userId: str = Depends(g
                 idx = url_to_index[url]
                 md += f"[{idx}] {citation}\n\n"
         
+        # Sanitize filename for HTTP header
+        safe_filename = urllib.parse.quote(topic_name.replace(" ", "_"))
+        
         from fastapi.responses import Response
         return Response(
             content=md,
             media_type="text/markdown",
-            headers={"Content-Disposition": f'attachment; filename="{topic_name.replace(" ", "_")}_notes.md"'}
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}_notes.md"'}
         )
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[EXPORT ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

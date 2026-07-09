@@ -204,10 +204,10 @@ export default function Home() {
             </button>
             <button 
               onClick={handleLogout}
-              className="text-sm px-2 py-1 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors font-sans"
+              className="text-sm px-3 py-1 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors font-sans"
               title="Log Out"
             >
-              ⎋
+              Log out
             </button>
           </div>
         </div>
@@ -311,12 +311,12 @@ export default function Home() {
                 </div>
               </header>
               <div className="flex-1 flex flex-col min-h-0 space-y-4">
-                <div className="shrink-0 flex gap-4">
-                  <div className="flex-1">
+                <div className="shrink-0 flex flex-col md:flex-row gap-4">
+                  <div className="flex-1 w-full">
                     <DocumentUpload topicId={activeTopicId} onUploadSuccess={fetchTopics} />
                   </div>
-                  <div className="w-1/3 bg-white p-4 border border-gray-200 rounded-md shadow-sm">
-                    <h3 className="text-sm font-semibold text-gray-800 mb-2">Collected Sources</h3>
+                  <div className="w-full md:w-1/3 bg-white dark:bg-gray-800 p-4 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm">
+                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Collected Sources</h3>
                     {topics.find(t => t.id === activeTopicId)?.sources?.length ? (
                       <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside max-h-16 overflow-y-auto">
                         {topics.find(t => t.id === activeTopicId)?.sources?.map((source, idx) => (
