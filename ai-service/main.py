@@ -192,6 +192,16 @@ except Exception:
         vectors_config=VectorParams(size=384, distance=Distance.COSINE),
     )
 
+# Ensure payload index exists for topicId filtering
+try:
+    qdrant_client.create_payload_index(
+        collection_name=COLLECTION_NAME,
+        field_name="topicId",
+        field_schema="keyword",
+    )
+except Exception:
+    pass  # Index likely already exists
+
 class VectorizeRequest(BaseModel):
     text: List[str]  # The clean text array from the n8n HTML node
     url: str         # The source URL for citation tracking
@@ -551,7 +561,7 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
 
                 scholar_resp = await client.get(
                     "https://api.semanticscholar.org/graph/v1/paper/search",
-                    params={"query": topic_name, "limit": "30", "fields": "title,abstract,url,authors,year"},
+                    params={"query": topic_name, "limit": "5", "fields": "title,abstract,url,authors,year"},
                     headers=scholar_headers,
                     timeout=15.0
                 )
@@ -575,7 +585,9 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
                         paper_year = str(paper.get("year", "n.d."))
 
                         chunks = text_splitter.split_text(abstract)
-                        embeddings = list(embedding_model.embed(chunks))
+                        
+                        # Offload CPU-heavy embedding to a thread
+                        embeddings = await asyncio.to_thread(lambda c=chunks: list(embedding_model.embed(c)))
                         
                         for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
                             point_id = str(abs(hash(f"{topicId}-{hash(url)}-scholar-{i}")))
@@ -618,7 +630,7 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
                     all_wiki_points = []
                     all_wiki_urls = set()
                     
-                    for result in search_results[:3]:  # Top 3 Wikipedia articles
+                    for result in search_results[:1]:  # Top 1 Wikipedia article to save CPU
                         wiki_title = result.get("title", "")
                         # Fetch full article text
                         extract_resp = await client.get(
@@ -637,13 +649,15 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
                             if not full_text.strip():
                                 continue
 
-                            # Truncate to prevent OOM / large payload timeouts on free tier
-                            full_text = full_text[:15000]
+                            # Truncate to prevent CPU timeouts on free tier
+                            full_text = full_text[:5000]
 
                             url = f"https://en.wikipedia.org/wiki/{wiki_title.replace(' ', '_')}"
                             today_str = date.today().strftime("%B %d, %Y")
                             chunks = text_splitter.split_text(full_text)
-                            embeddings = list(embedding_model.embed(chunks))
+                            
+                            # Offload CPU-heavy embedding
+                            embeddings = await asyncio.to_thread(lambda c=chunks: list(embedding_model.embed(c)))
                             
                             for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
                                 point_id = str(abs(hash(f"{topicId}-{hash(url)}-wiki-{i}")))
