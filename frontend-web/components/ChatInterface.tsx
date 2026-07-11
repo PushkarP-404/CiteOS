@@ -28,6 +28,7 @@ interface Message {
   content: string;
   sources?: string[];
   sourceDetails?: SourceDetail[];
+  statusText?: string;
 }
 
 export default function ChatInterface({ topicId, citationStyle }: ChatInterfaceProps) {
@@ -112,7 +113,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
               setMessages(prev => {
                 const newMessages = [...prev];
                 const lastMsg = { ...newMessages[newMessages.length - 1] };
-                if (parsed.type === 'source_details') {
+                if (parsed.type === 'status') {
+                  lastMsg.statusText = parsed.data;
+                } else if (parsed.type === 'source_details') {
                   lastMsg.sourceDetails = parsed.data;
                 } else if (parsed.type === 'sources') {
                   lastMsg.sources = parsed.data;
@@ -174,6 +177,22 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
                   : 'text-[var(--foreground)]'
               }`}
             >
+              {/* Auto-Learning Status Indicator */}
+              {msg.role === 'assistant' && msg.statusText && (
+                <div className={`flex items-center gap-2 mb-2 px-3 py-1.5 rounded-md text-base font-sans ${
+                  msg.statusText.includes('🧠') 
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-300 dark:border-green-800' 
+                    : msg.statusText.includes('⚠️')
+                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border border-yellow-300 dark:border-yellow-800'
+                    : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-800'
+                }`}>
+                  {!msg.content && (
+                    <span className="inline-block w-2 h-2 rounded-full bg-current animate-pulse" />
+                  )}
+                  <span className="italic text-sm">{msg.statusText}</span>
+                </div>
+              )}
+
               <div className="whitespace-pre-wrap">
                 {msg.role === 'user' ? `Q: ${msg.content}` : `A: ${msg.content}`}
               </div>

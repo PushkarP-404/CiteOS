@@ -374,6 +374,77 @@ class AskRequest(BaseModel):
     topicId: str
     limit: int = 5
 
+# ── Auto-Learning Configuration ──
+RELEVANCE_THRESHOLD = 0.35  # Below this score, trigger auto-research
+
+async def _qdrant_search(query_vector, topicId: str, limit: int):
+    """Run a filtered vector search in Qdrant (offloaded to thread)."""
+    return await asyncio.to_thread(
+        lambda: qdrant_client.query_points(
+            collection_name=COLLECTION_NAME,
+            query=query_vector,
+            query_filter=Filter(
+                must=[
+                    FieldCondition(
+                        key="topicId",
+                        match=MatchValue(value=topicId),
+                    )
+                ]
+            ),
+            limit=limit
+        ).points
+    )
+
+def _build_context_and_sources(search_result):
+    """Extract context chunks and source metadata from Qdrant results."""
+    context_chunks = []
+    source_map = {}
+
+    for hit in search_result:
+        url = hit.payload['url']
+        context_chunks.append(f"Source [{url}]:\n{hit.payload['text']}")
+
+        if url not in source_map:
+            source_map[url] = {
+                "scores": [],
+                "meta": {
+                    "url": url,
+                    "title": hit.payload.get("title", url),
+                    "authors": hit.payload.get("authors", ""),
+                    "year": hit.payload.get("year", "n.d."),
+                    "sourceType": hit.payload.get("sourceType", "web"),
+                    "accessDate": hit.payload.get("accessDate", date.today().strftime("%B %d, %Y")),
+                }
+            }
+        source_map[url]["scores"].append(hit.score)
+
+    compiled_context = "\n\n".join(context_chunks)
+
+    source_details = []
+    for url, data in source_map.items():
+        scores = data["scores"]
+        avg_score = sum(scores) / len(scores)
+        chunk_bonus = min(len(scores) * 10, 30)
+        quality = min(round(avg_score * 70 + chunk_bonus), 100)
+
+        meta = data["meta"]
+        source_details.append({
+            "url": url,
+            "title": meta["title"],
+            "score": quality,
+            "matchingChunks": len(scores),
+            "citations": {
+                "apa": format_citation(meta, "apa"),
+                "mla": format_citation(meta, "mla"),
+                "chicago": format_citation(meta, "chicago"),
+                "ieee": format_citation(meta, "ieee"),
+            }
+        })
+
+    source_details.sort(key=lambda x: x["score"], reverse=True)
+    return compiled_context, source_details
+
+
 @app.post("/api/ask")
 async def generate_answer(payload: AskRequest, userId: str = Depends(get_current_user)):
     try:
@@ -381,77 +452,68 @@ async def generate_answer(payload: AskRequest, userId: str = Depends(get_current
         topic = await topics_collection.find_one({"_id": ObjectId(payload.topicId), "userId": userId})
         if not topic:
             raise HTTPException(status_code=404, detail="Topic not found or unauthorized")
-        # 1. Retrieve relevant context from Qdrant
-        query_vector = list(embedding_model.embed([payload.query]))[0].tolist()
         
-        search_result = qdrant_client.query_points(
-            collection_name=COLLECTION_NAME,
-            query=query_vector,
-            query_filter=Filter(
-                must=[
-                    FieldCondition(
-                        key="topicId",
-                        match=MatchValue(value=payload.topicId),
-                    )
-                ]
-            ),
-            limit=payload.limit
-        ).points
+        topic_name = topic.get("name", "")
 
-        # 2. Extract text and URLs from the results + compute quality scores
+        # 1. Embed the user's query (offloaded to thread)
+        query_vector = await asyncio.to_thread(
+            lambda: list(embedding_model.embed([payload.query]))[0].tolist()
+        )
+        
+        # 2. Initial Qdrant search
+        search_result = await _qdrant_search(query_vector, payload.topicId, payload.limit)
+
+        # 3. ── Auto-Learning: Detect knowledge gaps ──
+        top_score = max(hit.score for hit in search_result) if search_result else 0
+        knowledge_gap = len(search_result) == 0 or top_score < RELEVANCE_THRESHOLD
+        auto_learned = False
+        auto_learn_sources = 0
+
+        if knowledge_gap:
+            print(f"[AUTO-LEARN] Knowledge gap detected for '{payload.query}' (top_score={top_score:.3f}). Researching...")
+            
+            # Attempt 1: Search using the user's exact question
+            auto_learn_sources = await _auto_research_for_query(
+                search_query=payload.query,
+                topicId=payload.topicId,
+                scholar_limit=3,
+                wiki_limit=1
+            )
+
+            # Attempt 2: Fallback to broad topic name if the query yielded nothing
+            if auto_learn_sources == 0 and topic_name:
+                print(f"[AUTO-LEARN] Query yielded 0 sources. Falling back to topic name: '{topic_name}'")
+                auto_learn_sources = await _auto_research_for_query(
+                    search_query=topic_name,
+                    topicId=payload.topicId,
+                    scholar_limit=3,
+                    wiki_limit=1
+                )
+
+            if auto_learn_sources > 0:
+                auto_learned = True
+                # Re-run vector search with the freshly ingested knowledge
+                search_result = await _qdrant_search(query_vector, payload.topicId, payload.limit)
+
+        # 4. Build context from search results
         if not search_result:
-             return {"status": "success", "answer": "I do not have enough research in this topic's database to answer that.", "sources": []}
+            # Even after auto-learning, no results found
+            async def empty_stream():
+                if knowledge_gap:
+                    yield f"data: {json.dumps({'type': 'status', 'data': '🔍 Searched the web but could not find relevant sources for this question. Try uploading a document or rephrasing your query.'})}\n\n"
+                no_data_msg = "I do not have enough research in this topic's database to answer that."
+                no_data_payload = json.dumps({'type': 'text', 'data': no_data_msg})
+                yield f"data: {no_data_payload}\n\n"
+                yield "data: [DONE]\n\n"
+                await messages_collection.insert_many([
+                    {"topicId": payload.topicId, "role": "user", "content": payload.query},
+                    {"topicId": payload.topicId, "role": "assistant", "content": "I do not have enough research in this topic's database to answer that.", "sources": [], "sourceDetails": []}
+                ])
+            return StreamingResponse(empty_stream(), media_type="text/event-stream")
 
-        context_chunks = []
-        source_map = {}  # url -> {scores: [], meta: {}, chunks: int}
-        
-        for hit in search_result:
-            url = hit.payload['url']
-            context_chunks.append(f"Source [{url}]:\n{hit.payload['text']}")
-            
-            if url not in source_map:
-                source_map[url] = {
-                    "scores": [],
-                    "meta": {
-                        "url": url,
-                        "title": hit.payload.get("title", url),
-                        "authors": hit.payload.get("authors", ""),
-                        "year": hit.payload.get("year", "n.d."),
-                        "sourceType": hit.payload.get("sourceType", "web"),
-                        "accessDate": hit.payload.get("accessDate", date.today().strftime("%B %d, %Y")),
-                    }
-                }
-            source_map[url]["scores"].append(hit.score)
-            
-        compiled_context = "\n\n".join(context_chunks)
-        
-        # 3. Build source details with quality scoring and formatted citations
-        source_details = []
-        for url, data in source_map.items():
-            scores = data["scores"]
-            avg_score = sum(scores) / len(scores)
-            # Quality = average relevance (0-1) scaled to 0-100, boosted by multiple chunk matches
-            chunk_bonus = min(len(scores) * 10, 30)  # up to +30 for multiple matches
-            quality = min(round(avg_score * 70 + chunk_bonus), 100)
-            
-            meta = data["meta"]
-            source_details.append({
-                "url": url,
-                "title": meta["title"],
-                "score": quality,
-                "matchingChunks": len(scores),
-                "citations": {
-                    "apa": format_citation(meta, "apa"),
-                    "mla": format_citation(meta, "mla"),
-                    "chicago": format_citation(meta, "chicago"),
-                    "ieee": format_citation(meta, "ieee"),
-                }
-            })
-        
-        # Sort by quality score descending
-        source_details.sort(key=lambda x: x["score"], reverse=True)
+        compiled_context, source_details = _build_context_and_sources(search_result)
 
-        # 4. Retrieve past chat memory (last 6 messages)
+        # 5. Retrieve past chat memory (last 6 messages)
         cursor = messages_collection.find({"topicId": payload.topicId}).sort("_id", -1).limit(6)
         past_messages = []
         async for msg in cursor:
@@ -466,7 +528,7 @@ async def generate_answer(payload: AskRequest, userId: str = Depends(get_current
                 memory_context += f"{role}: {m['content']}\n"
             memory_context += "\n"
 
-        # 5. Construct the strict RAG Prompt
+        # 6. Construct the strict RAG Prompt
         system_instruction = f"""You are CiteOS, a precision research assistant. 
         Answer the user's question using the provided CONTEXT and PREVIOUS CONVERSATION HISTORY. 
         If the answer cannot be found in the CONTEXT or history, you must explicitly state that you do not know. 
@@ -477,8 +539,14 @@ async def generate_answer(payload: AskRequest, userId: str = Depends(get_current
         {compiled_context}
         """
         
-        # 6. Create an async generator to yield chunks from Groq
+        # 7. Create an async generator to yield chunks from Groq
         async def generate_stream():
+            # If auto-learning was triggered, inform the user first
+            if knowledge_gap and auto_learned:
+                yield f"data: {json.dumps({'type': 'status', 'data': f'🧠 Auto-Learning: Found {auto_learn_sources} new source(s). Generating answer...'})}\n\n"
+            elif knowledge_gap and not auto_learned:
+                yield f"data: {json.dumps({'type': 'status', 'data': '⚠️ Limited context available. Answer may be incomplete.'})}\n\n"
+
             # Send the rich source details first so the UI can display them immediately
             yield f"data: {json.dumps({'type': 'source_details', 'data': source_details})}\n\n"
             # Also send flat source list for backward compat
@@ -507,13 +575,14 @@ async def generate_answer(payload: AskRequest, userId: str = Depends(get_current
             # Save the interaction to memory asynchronously after streaming
             await messages_collection.insert_many([
                 {"topicId": payload.topicId, "role": "user", "content": payload.query},
-                {"topicId": payload.topicId, "role": "assistant", "content": full_assistant_response, "sources": [s['url'] for s in source_details], "sourceDetails": source_details}
+                {"topicId": payload.topicId, "role": "assistant", "content": full_assistant_response, "sources": [s['url'] for s in source_details], "sourceDetails": source_details, "autoLearned": auto_learned}
             ])
 
-        # 7. Return the StreamingResponse
+        # 8. Return the StreamingResponse
         return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
     except Exception as e:
+        print(f"[ASK ERROR] {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
 
@@ -539,6 +608,151 @@ async def create_topic(payload: TopicCreateRequest, userId: str = Depends(get_cu
 class ResearchRequest(BaseModel):
     topicName: str
 
+# ── Reusable Auto-Research Helper ──
+# Used by both the manual "Auto-Research Web" button AND the auto-learning system.
+async def _auto_research_for_query(search_query: str, topicId: str, scholar_limit: int = 3, wiki_limit: int = 1) -> int:
+    """
+    Searches Semantic Scholar and Wikipedia for `search_query`, embeds the results,
+    and stores them in Qdrant under the given `topicId`.
+    Returns the number of new sources found.
+    """
+    sources_found = 0
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+
+    async with httpx.AsyncClient() as client:
+        # ── Source 1: Semantic Scholar (Academic Papers) ──
+        try:
+            scholar_headers = {}
+            scholar_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+            if scholar_api_key:
+                scholar_headers["x-api-key"] = scholar_api_key
+
+            scholar_resp = await client.get(
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                params={"query": search_query, "limit": str(scholar_limit), "fields": "title,abstract,url,authors,year"},
+                headers=scholar_headers,
+                timeout=15.0
+            )
+            if scholar_resp.status_code == 200:
+                papers = scholar_resp.json().get("data", [])
+                all_scholar_points = []
+                all_scholar_urls = set()
+                
+                for paper in papers:
+                    abstract = paper.get("abstract")
+                    if not abstract:
+                        continue
+                    title = paper.get("title", "Unknown")
+                    url = paper.get("url") or f"https://semanticscholar.org/paper/{paper.get('paperId', '')}"
+
+                    # Extract author names
+                    authors_list = paper.get("authors", [])
+                    author_str = ", ".join([a.get("name", "") for a in authors_list[:3]]) if authors_list else "Unknown"
+                    if len(authors_list) > 3:
+                        author_str += " et al."
+                    paper_year = str(paper.get("year", "n.d."))
+
+                    chunks = text_splitter.split_text(abstract)
+                    
+                    # Offload CPU-heavy embedding to a thread
+                    embeddings = await asyncio.to_thread(lambda c=chunks: list(embedding_model.embed(c)))
+                    
+                    for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
+                        point_id = str(abs(hash(f"{topicId}-{hash(url)}-scholar-{i}")))
+                        all_scholar_points.append(PointStruct(
+                            id=int(point_id),
+                            vector=vector.tolist(),
+                            payload={
+                                "text": chunk, "url": url, "topicId": topicId,
+                                "title": title, "authors": author_str,
+                                "year": paper_year, "sourceType": "scholar"
+                            }
+                        ))
+                    all_scholar_urls.add(url)
+                
+                if all_scholar_points:
+                    await asyncio.to_thread(qdrant_client.upsert, collection_name=COLLECTION_NAME, points=all_scholar_points)
+                    await topics_collection.update_one(
+                        {"_id": ObjectId(topicId)},
+                        {"$addToSet": {"sources": {"$each": list(all_scholar_urls)}}}
+                    )
+                    sources_found += len(all_scholar_urls)
+            else:
+                print(f"[RESEARCH] Semantic Scholar returned {scholar_resp.status_code}, skipping.")
+        except Exception as e:
+            print(f"[RESEARCH] Semantic Scholar failed: {e}. Skipping.")
+
+        # ── Source 2: Wikipedia (General Knowledge) ──
+        try:
+            wiki_search_resp = await client.get(
+                "https://en.wikipedia.org/w/api.php",
+                params={
+                    "action": "query", "list": "search",
+                    "srsearch": search_query, "utf8": "", "format": "json"
+                },
+                headers={"User-Agent": "CiteOS-Bot/1.0 (contact@example.com)"},
+                timeout=15.0
+            )
+            if wiki_search_resp.status_code == 200:
+                search_results = wiki_search_resp.json().get("query", {}).get("search", [])
+                all_wiki_points = []
+                all_wiki_urls = set()
+                
+                for result in search_results[:wiki_limit]:
+                    wiki_title = result.get("title", "")
+                    # Fetch full article text
+                    extract_resp = await client.get(
+                        "https://en.wikipedia.org/w/api.php",
+                        params={
+                            "action": "query", "prop": "extracts",
+                            "explaintext": "1", "titles": wiki_title, "format": "json"
+                        },
+                        headers={"User-Agent": "CiteOS-Bot/1.0 (contact@example.com)"},
+                        timeout=15.0
+                    )
+                    if extract_resp.status_code == 200:
+                        pages = extract_resp.json().get("query", {}).get("pages", {})
+                        page_id = list(pages.keys())[0]
+                        full_text = pages[page_id].get("extract", "")
+                        if not full_text.strip():
+                            continue
+
+                        # Truncate to prevent CPU timeouts on free tier
+                        full_text = full_text[:5000]
+
+                        url = f"https://en.wikipedia.org/wiki/{wiki_title.replace(' ', '_')}"
+                        today_str = date.today().strftime("%B %d, %Y")
+                        chunks = text_splitter.split_text(full_text)
+                        
+                        # Offload CPU-heavy embedding
+                        embeddings = await asyncio.to_thread(lambda c=chunks: list(embedding_model.embed(c)))
+                        
+                        for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
+                            point_id = str(abs(hash(f"{topicId}-{hash(url)}-wiki-{i}")))
+                            all_wiki_points.append(PointStruct(
+                                id=int(point_id),
+                                vector=vector.tolist(),
+                                payload={
+                                    "text": chunk, "url": url, "topicId": topicId,
+                                    "title": wiki_title, "sourceType": "wikipedia",
+                                    "accessDate": today_str
+                                }
+                            ))
+                        all_wiki_urls.add(url)
+                        
+                if all_wiki_points:
+                    await asyncio.to_thread(qdrant_client.upsert, collection_name=COLLECTION_NAME, points=all_wiki_points)
+                    await topics_collection.update_one(
+                        {"_id": ObjectId(topicId)},
+                        {"$addToSet": {"sources": {"$each": list(all_wiki_urls)}}}
+                    )
+                    sources_found += len(all_wiki_urls)
+        except Exception as e:
+            print(f"[RESEARCH] Wikipedia failed: {e}. Skipping.")
+
+    return sources_found
+
+
 @app.post("/api/topics/{topicId}/research")
 async def trigger_research(topicId: str, payload: ResearchRequest, userId: str = Depends(get_current_user)):
     try:
@@ -547,140 +761,12 @@ async def trigger_research(topicId: str, payload: ResearchRequest, userId: str =
         if not topic:
             raise HTTPException(status_code=404, detail="Topic not found or unauthorized")
 
-        topic_name = payload.topicName
-        sources_found = 0
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-
-        async with httpx.AsyncClient() as client:
-            # ── Source 1: Semantic Scholar (Academic Papers) ──
-            try:
-                scholar_headers = {}
-                scholar_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
-                if scholar_api_key:
-                    scholar_headers["x-api-key"] = scholar_api_key
-
-                scholar_resp = await client.get(
-                    "https://api.semanticscholar.org/graph/v1/paper/search",
-                    params={"query": topic_name, "limit": "5", "fields": "title,abstract,url,authors,year"},
-                    headers=scholar_headers,
-                    timeout=15.0
-                )
-                if scholar_resp.status_code == 200:
-                    papers = scholar_resp.json().get("data", [])
-                    all_scholar_points = []
-                    all_scholar_urls = set()
-                    
-                    for paper in papers:
-                        abstract = paper.get("abstract")
-                        if not abstract:
-                            continue
-                        title = paper.get("title", "Unknown")
-                        url = paper.get("url") or f"https://semanticscholar.org/paper/{paper.get('paperId', '')}"
-
-                        # Extract author names
-                        authors_list = paper.get("authors", [])
-                        author_str = ", ".join([a.get("name", "") for a in authors_list[:3]]) if authors_list else "Unknown"
-                        if len(authors_list) > 3:
-                            author_str += " et al."
-                        paper_year = str(paper.get("year", "n.d."))
-
-                        chunks = text_splitter.split_text(abstract)
-                        
-                        # Offload CPU-heavy embedding to a thread
-                        embeddings = await asyncio.to_thread(lambda c=chunks: list(embedding_model.embed(c)))
-                        
-                        for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
-                            point_id = str(abs(hash(f"{topicId}-{hash(url)}-scholar-{i}")))
-                            all_scholar_points.append(PointStruct(
-                                id=int(point_id),
-                                vector=vector.tolist(),
-                                payload={
-                                    "text": chunk, "url": url, "topicId": topicId,
-                                    "title": title, "authors": author_str,
-                                    "year": paper_year, "sourceType": "scholar"
-                                }
-                            ))
-                        all_scholar_urls.add(url)
-                    
-                    if all_scholar_points:
-                        await asyncio.to_thread(qdrant_client.upsert, collection_name=COLLECTION_NAME, points=all_scholar_points)
-                        await topics_collection.update_one(
-                            {"_id": ObjectId(topicId)},
-                            {"$addToSet": {"sources": {"$each": list(all_scholar_urls)}}}
-                        )
-                        sources_found += len(all_scholar_urls)
-                else:
-                    print(f"[RESEARCH] Semantic Scholar returned {scholar_resp.status_code}, skipping.")
-            except Exception as e:
-                print(f"[RESEARCH] Semantic Scholar failed: {e}. Skipping.")
-
-            # ── Source 2: Wikipedia (General Knowledge) ──
-            try:
-                wiki_search_resp = await client.get(
-                    "https://en.wikipedia.org/w/api.php",
-                    params={
-                        "action": "query", "list": "search",
-                        "srsearch": topic_name, "utf8": "", "format": "json"
-                    },
-                    headers={"User-Agent": "CiteOS-Bot/1.0 (contact@example.com)"},
-                    timeout=15.0
-                )
-                if wiki_search_resp.status_code == 200:
-                    search_results = wiki_search_resp.json().get("query", {}).get("search", [])
-                    all_wiki_points = []
-                    all_wiki_urls = set()
-                    
-                    for result in search_results[:1]:  # Top 1 Wikipedia article to save CPU
-                        wiki_title = result.get("title", "")
-                        # Fetch full article text
-                        extract_resp = await client.get(
-                            "https://en.wikipedia.org/w/api.php",
-                            params={
-                                "action": "query", "prop": "extracts",
-                                "explaintext": "1", "titles": wiki_title, "format": "json"
-                            },
-                            headers={"User-Agent": "CiteOS-Bot/1.0 (contact@example.com)"},
-                            timeout=15.0
-                        )
-                        if extract_resp.status_code == 200:
-                            pages = extract_resp.json().get("query", {}).get("pages", {})
-                            page_id = list(pages.keys())[0]
-                            full_text = pages[page_id].get("extract", "")
-                            if not full_text.strip():
-                                continue
-
-                            # Truncate to prevent CPU timeouts on free tier
-                            full_text = full_text[:5000]
-
-                            url = f"https://en.wikipedia.org/wiki/{wiki_title.replace(' ', '_')}"
-                            today_str = date.today().strftime("%B %d, %Y")
-                            chunks = text_splitter.split_text(full_text)
-                            
-                            # Offload CPU-heavy embedding
-                            embeddings = await asyncio.to_thread(lambda c=chunks: list(embedding_model.embed(c)))
-                            
-                            for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
-                                point_id = str(abs(hash(f"{topicId}-{hash(url)}-wiki-{i}")))
-                                all_wiki_points.append(PointStruct(
-                                    id=int(point_id),
-                                    vector=vector.tolist(),
-                                    payload={
-                                        "text": chunk, "url": url, "topicId": topicId,
-                                        "title": wiki_title, "sourceType": "wikipedia",
-                                        "accessDate": today_str
-                                    }
-                                ))
-                            all_wiki_urls.add(url)
-                            
-                    if all_wiki_points:
-                        await asyncio.to_thread(qdrant_client.upsert, collection_name=COLLECTION_NAME, points=all_wiki_points)
-                        await topics_collection.update_one(
-                            {"_id": ObjectId(topicId)},
-                            {"$addToSet": {"sources": {"$each": list(all_wiki_urls)}}}
-                        )
-                        sources_found += len(all_wiki_urls)
-            except Exception as e:
-                print(f"[RESEARCH] Wikipedia failed: {e}. Skipping.")
+        sources_found = await _auto_research_for_query(
+            search_query=payload.topicName,
+            topicId=topicId,
+            scholar_limit=5,
+            wiki_limit=1
+        )
 
         if sources_found == 0:
             return {"status": "warning", "message": "Research completed but no sources were found. Try a different topic name."}
