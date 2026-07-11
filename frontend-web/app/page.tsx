@@ -59,7 +59,7 @@ export default function Home() {
         return;
       }
       const data = await response.json();
-      
+
       if (data.status === 'success' && data.topics.length > 0) {
         setTopics(data.topics);
       }
@@ -77,20 +77,20 @@ export default function Home() {
   const handleCreateTopic = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTopicName.trim()) return;
-    
+
     setIsCreating(true);
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       const response = await fetch(`${API_URL}/api/topics`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders()
         },
         body: JSON.stringify({ name: newTopicName.trim() })
       });
       const data = await response.json();
-      
+
       if (data.status === 'success') {
         setTopics([...topics, data.topic]);
         setActiveTopicId(data.topic.id);
@@ -106,24 +106,24 @@ export default function Home() {
   const handleAutoResearch = async () => {
     if (!activeTopicId) return;
     const topicName = topics.find(t => t.id === activeTopicId)?.name;
-    
+
     setIsResearching(true);
     try {
       // Trigger research via the backend proxy
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       const response = await fetch(`${API_URL}/api/topics/${activeTopicId}/research`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders()
         },
         body: JSON.stringify({ topicName })
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to complete research');
       }
-      
+
       alert('Research complete! The agents have found and processed relevant web sources into your database.');
       fetchTopics();
     } catch (error) {
@@ -175,7 +175,7 @@ export default function Home() {
   return (
     <main className="h-[100dvh] flex bg-transparent overflow-hidden relative">
       {/* CiteOS Background Logo / Home Button */}
-      <button 
+      <button
         onClick={() => setActiveTopicId('')}
         className="absolute top-4 right-4 md:top-8 md:right-12 font-handwriting text-3xl md:text-5xl font-bold text-[var(--foreground)] opacity-30 hover:opacity-70 transition-opacity select-none cursor-pointer z-50"
       >
@@ -184,7 +184,7 @@ export default function Home() {
 
       {/* Mobile Sidebar Backdrop */}
       {isSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/20 dark:bg-black/40 z-20 md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
@@ -195,14 +195,14 @@ export default function Home() {
         <div className="flex items-center justify-between font-handwriting font-bold text-2xl text-[var(--foreground)] border-b border-[var(--margin-line)] pb-2">
           <span>Topics</span>
           <div className="flex space-x-2">
-            <button 
+            <button
               onClick={toggleDarkMode}
               className="text-sm px-2 py-1 border border-[var(--foreground)] rounded-full hover:bg-[var(--foreground)] hover:text-[var(--background)] transition-colors font-sans"
               title="Toggle Dark Mode"
             >
               {isDarkMode ? '🌙' : '☀️'}
             </button>
-            <button 
+            <button
               onClick={handleLogout}
               className="text-sm px-3 py-1 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors font-sans"
               title="Log Out"
@@ -219,11 +219,10 @@ export default function Home() {
               <button
                 key={topic.id}
                 onClick={() => setActiveTopicId(topic.id)}
-                className={`w-full text-left px-3 py-1 text-xl font-handwriting transition-all relative ${
-                  activeTopicId === topic.id
+                className={`w-full text-left px-3 py-1 text-xl font-handwriting transition-all relative ${activeTopicId === topic.id
                     ? 'text-blue-600 font-bold scale-105 ml-2'
                     : 'text-[var(--foreground)] opacity-70 hover:opacity-100 hover:ml-1'
-                }`}
+                  }`}
               >
                 {activeTopicId === topic.id && <span className="absolute -left-3">»</span>}
                 {topic.name}
@@ -231,7 +230,7 @@ export default function Home() {
             ))
           )}
         </nav>
-        
+
         {/* Create Topic Form */}
         <form onSubmit={handleCreateTopic} className="mt-auto pt-6 border-t border-[var(--margin-line)]">
           <label htmlFor="new-topic" className="block text-lg font-handwriting mb-2">
@@ -259,7 +258,7 @@ export default function Home() {
       </aside>
 
       {/* Main Chat Interface Panel */}
-      <section className="flex-1 flex flex-col px-4 md:px-8 pt-14 md:pt-12 pb-0 bg-transparent h-full overflow-y-auto overflow-x-hidden relative">
+      <section className="flex-1 flex flex-col pb-0 bg-transparent h-full overflow-y-auto overflow-x-hidden relative">
         {/* Hamburger Menu for Mobile */}
         <button
           onClick={() => setIsSidebarOpen(true)}
@@ -271,14 +270,17 @@ export default function Home() {
           </svg>
         </button>
 
-        <div className="w-full max-w-4xl mx-auto flex flex-col min-h-full space-y-4 pt-4 md:pt-0">
-          {activeTopicId ? (
-            <>
-              <header className="sticky top-0 z-10 bg-[var(--background)] -mx-4 md:-mx-8 px-4 md:px-8 pt-2 pb-2 mb-4 shrink-0 flex flex-col md:flex-row justify-between items-start md:items-end gap-3 border-b-2 border-dashed border-[var(--foreground)] shadow-sm">
-                <h1 className="text-3xl md:text-4xl font-handwriting font-bold text-[var(--foreground)] pr-16 md:pr-0">
+        {activeTopicId ? (
+          <>
+            <header className="sticky top-0 z-10 w-full bg-[var(--background)] px-4 md:px-8 pt-16 md:pt-6 pb-3 border-b-2 border-dashed border-[var(--foreground)] shadow-sm">
+              <div className="w-full max-w-4xl mx-auto pl-12 md:pl-0">
+                <h1 className="text-3xl md:text-4xl font-handwriting font-bold text-[var(--foreground)]">
                   Research Notes: {topics.find(t => t.id === activeTopicId)?.name || 'Select a topic'}
                 </h1>
-              </header>
+              </div>
+            </header>
+
+            <div className="w-full max-w-4xl mx-auto flex flex-col min-h-full space-y-4 px-4 md:px-8 pt-4">
               <div className="flex-1 flex flex-col space-y-4">
                 <div className="shrink-0 flex flex-col md:flex-row gap-4">
                   <div className="flex-1 w-full">
@@ -329,31 +331,31 @@ export default function Home() {
                   </button>
                 </ChatInterface>
               </div>
-            </>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center space-y-8 opacity-80 mt-10">
-              <h2 className="text-6xl font-handwriting font-bold mb-8">
-                Welcome to Cite<span className="text-orange-500">OS</span>
-              </h2>
-              
-              <div className="bg-[var(--line-color)] p-8 rounded-lg shadow-sm border border-[var(--margin-line)] transform -rotate-1 hover:rotate-0 transition-transform">
-                <h3 className="text-3xl font-handwriting font-bold mb-6 underline decoration-wavy decoration-blue-500">
-                  How to Use:
-                </h3>
-                <ul className="text-3xl font-handwriting space-y-6 max-w-lg">
-                  <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">1.</span> Create a topic in the margin</li>
-                  <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">2.</span> Upload reference materials</li>
-                  <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">3.</span> Ask questions!</li>
-                </ul>
-              </div>
-
-              <p className="text-2xl font-handwriting mt-12 text-center max-w-md border-t-2 border-dashed border-[var(--foreground)] pt-6">
-                * All answers are strictly grounded in your documents with exact citations. *
-              </p>
             </div>
+          </>
+        ) : (
+          <div className="w-full max-w-4xl mx-auto flex-1 flex flex-col items-center justify-center space-y-8 opacity-80 mt-10 px-4 md:px-8">
+            <h2 className="text-6xl font-handwriting font-bold mb-8">
+                  Welcome to Cite<span className="text-orange-500">OS</span>
+                </h2>
+
+                <div className="bg-[var(--line-color)] p-8 rounded-lg shadow-sm border border-[var(--margin-line)] transform -rotate-1 hover:rotate-0 transition-transform">
+                  <h3 className="text-3xl font-handwriting font-bold mb-6 underline decoration-wavy decoration-blue-500">
+                    How to Use:
+                  </h3>
+                  <ul className="text-3xl font-handwriting space-y-6 max-w-lg">
+                    <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">1.</span> Create a topic in the margin</li>
+                    <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">2.</span> Upload reference materials</li>
+                    <li className="flex items-center"><span className="text-blue-600 font-bold mr-4">3.</span> Ask questions!</li>
+                  </ul>
+                </div>
+
+                <p className="text-2xl font-handwriting mt-12 text-center max-w-md border-t-2 border-dashed border-[var(--foreground)] pt-6">
+                  * All answers are strictly grounded in your documents with exact citations. *
+                </p>
+              </div>
           )}
-        </div>
-      </section>
-    </main>
-  );
+            </section>
+          </main>
+        );
 }
