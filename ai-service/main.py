@@ -1,7 +1,7 @@
 import os
 import asyncio
 import httpx
-from groq import Groq
+import google.generativeai as genai
 import urllib.parse 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -25,7 +25,7 @@ import json
 load_dotenv()
 
 # Strict Environment Validation Guardrail
-required_envs = ["MONGO_USERNAME", "MONGO_PASSWORD", "MONGO_CLUSTER", "GROQ_API_KEY", "QDRANT_URL", "JWT_SECRET_KEY"]
+required_envs = ["MONGO_USERNAME", "MONGO_PASSWORD", "MONGO_CLUSTER", "GEMINI_API_KEY", "QDRANT_URL", "JWT_SECRET_KEY"]
 for var in required_envs:
     if not os.getenv(var):
         raise ValueError(f"CRITICAL: Missing environment variable: {var}")
@@ -168,8 +168,8 @@ def format_citation(meta: dict, style: str = "apa") -> str:
     return f"{title} - {url}"
 
 
-# Initialize Groq Client
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Initialize Gemini API
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # Initialize FastEmbed model (runs locally, zero-compiler overhead)
 embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
@@ -529,10 +529,16 @@ async def generate_answer(payload: AskRequest, userId: str = Depends(get_current
             memory_context += "\n"
 
         # 6. Construct the strict RAG Prompt
-        system_instruction = f"""You are CiteOS, a precision research assistant. 
-        Answer the user's question using the provided CONTEXT and PREVIOUS CONVERSATION HISTORY. 
-        If the answer cannot be found in the CONTEXT or history, you must explicitly state that you do not know. 
-        Do not use outside knowledge. 
+        system_instruction = f"""You are CiteOS, an advanced academic research assistant designed to assist researchers, scientists, and professionals with deep insights.
+        Your goal is to provide highly detailed, comprehensive, and well-structured answers based ONLY on the provided CONTEXT and PREVIOUS CONVERSATION HISTORY.
+        
+        GUIDERAILS & INSTRUCTIONS:
+        1. DETAIL & DEPTH: Do not provide brief or superficial summaries. Dive deep into the nuances, methodologies, and core findings. Explain complex concepts thoroughly.
+        2. STRUCTURE: Use clear headings (##), bullet points, and paragraphs to organize information logically.
+        3. ACADEMIC TONE: Maintain an objective, scholarly, and analytical tone.
+        4. STRICT ACCURACY: Base your answer strictly on the provided CONTEXT. Do not hallucinate or use outside knowledge.
+        5. SYNTHESIS: If multiple sources are provided, synthesize the information to present a cohesive answer, comparing and contrasting viewpoints if applicable.
+        6. LIMITATIONS: If the answer cannot be found in the CONTEXT, explicitly state that you do not have enough research in the database to answer. If partial information exists, state the limitations clearly.
         
         {memory_context}
         CONTEXT:
@@ -552,23 +558,18 @@ async def generate_answer(payload: AskRequest, userId: str = Depends(get_current
             # Also send flat source list for backward compat
             yield f"data: {json.dumps({'type': 'sources', 'data': [s['url'] for s in source_details]})}\n\n"
             
-            # Stream the response from Groq's ultra-fast Llama 3 API
-            stream = groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                    {'role': 'system', 'content': system_instruction},
-                    {'role': 'user', 'content': payload.query}
-                ],
-                stream=True
+            # Stream the response from Gemini
+            model = genai.GenerativeModel(
+                model_name="gemini-flash-latest",
+                system_instruction=system_instruction
             )
+            stream = model.generate_content(payload.query, stream=True)
             
             full_assistant_response = ""
             for chunk in stream:
-                # Groq returns tokens inside the choices[0].delta.content path
-                token = chunk.choices[0].delta.content
-                if token is not None:
-                    full_assistant_response += token
-                    yield f"data: {json.dumps({'type': 'text', 'data': token})}\n\n"
+                if chunk.text:
+                    full_assistant_response += chunk.text
+                    yield f"data: {json.dumps({'type': 'text', 'data': chunk.text})}\n\n"
                 
             yield "data: [DONE]\n\n"
             
