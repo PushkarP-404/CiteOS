@@ -7,6 +7,7 @@ import { getAuthHeaders } from '@/lib/auth';
 interface ChatInterfaceProps {
   topicId: string;
   citationStyle: string;
+  children?: React.ReactNode;
 }
 
 interface SourceDetail {
@@ -31,7 +32,7 @@ interface Message {
   statusText?: string;
 }
 
-export default function ChatInterface({ topicId, citationStyle }: ChatInterfaceProps) {
+export default function ChatInterface({ topicId, citationStyle, children }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -159,9 +160,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-transparent">
+    <div className="flex-1 flex flex-col bg-transparent">
       {/* Messages Area */}
-      <div className="flex-1 p-4 overflow-y-auto space-y-8">
+      <div className="flex-1 p-4 space-y-8">
         {messages.length === 0 && !isLoading && (
           <div className="text-center font-handwriting text-2xl text-[var(--foreground)] opacity-50 mt-10">
             No notes here yet. Jot something down!
@@ -274,7 +275,12 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       </div>
 
       {/* Input Area */}
-      <div className="p-2 mt-4 border-t-2 border-[var(--margin-line)]">
+      <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 bg-[var(--background)] z-10 pb-4 md:pb-8 pt-4 mt-4 border-t-2 border-[var(--margin-line)]">
+        {children && (
+          <div className="mb-3 flex flex-nowrap overflow-x-auto overflow-y-hidden hide-scrollbar items-center gap-2 md:gap-3 pb-1">
+            {children}
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 items-stretch sm:items-end w-full">
           <textarea
             className="flex-1 w-full p-2 bg-transparent border-b-2 border-dashed border-[var(--foreground)] focus:border-blue-500 focus:outline-none resize-none font-handwriting text-2xl leading-relaxed text-[var(--foreground)]"

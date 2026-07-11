@@ -259,11 +259,11 @@ export default function Home() {
       </aside>
 
       {/* Main Chat Interface Panel */}
-      <section className="flex-1 flex flex-col p-4 md:p-8 pt-14 md:pt-12 bg-transparent h-full overflow-hidden relative">
+      <section className="flex-1 flex flex-col px-4 md:px-8 pt-14 md:pt-12 pb-0 bg-transparent h-full overflow-y-auto overflow-x-hidden relative">
         {/* Hamburger Menu for Mobile */}
         <button
           onClick={() => setIsSidebarOpen(true)}
-          className="absolute top-4 left-4 z-10 md:hidden text-[var(--foreground)] opacity-70 hover:opacity-100"
+          className="fixed top-4 left-4 z-20 md:hidden text-[var(--foreground)] opacity-70 hover:opacity-100"
           title="Open Topics"
         >
           <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -271,46 +271,15 @@ export default function Home() {
           </svg>
         </button>
 
-        <div className="w-full max-w-4xl mx-auto flex flex-col h-full space-y-4 pt-4 md:pt-0">
+        <div className="w-full max-w-4xl mx-auto flex flex-col min-h-full space-y-4 pt-4 md:pt-0">
           {activeTopicId ? (
             <>
-              <header className="shrink-0 mb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-3 border-b-2 border-dashed border-[var(--foreground)] pb-4">
+              <header className="sticky top-0 z-10 bg-[var(--background)] -mx-4 md:-mx-8 px-4 md:px-8 pt-2 pb-2 mb-4 shrink-0 flex flex-col md:flex-row justify-between items-start md:items-end gap-3 border-b-2 border-dashed border-[var(--foreground)] shadow-sm">
                 <h1 className="text-3xl md:text-4xl font-handwriting font-bold text-[var(--foreground)] pr-16 md:pr-0">
                   Research Notes: {topics.find(t => t.id === activeTopicId)?.name || 'Select a topic'}
                 </h1>
-                <div className="flex flex-wrap items-center gap-2 md:gap-3">
-                  {/* Citation Style Picker */}
-                  <select
-                    value={citationStyle}
-                    onChange={(e) => setCitationStyle(e.target.value)}
-                    className="px-2 py-1 font-sans text-sm border-2 border-dashed border-[var(--foreground)] bg-transparent text-[var(--foreground)] rounded cursor-pointer focus:outline-none focus:border-blue-500"
-                    title="Citation Format"
-                  >
-                    <option value="apa">APA</option>
-                    <option value="mla">MLA</option>
-                    <option value="chicago">Chicago</option>
-                    <option value="ieee">IEEE</option>
-                  </select>
-
-                  <button
-                    onClick={handleExport}
-                    className="px-3 py-2 font-handwriting text-xl font-bold bg-[var(--line-color)] border-2 border-[var(--margin-line)] text-[var(--foreground)] hover:bg-blue-200 dark:hover:bg-blue-900 transition-colors transform rotate-1 hover:rotate-0"
-                    title="Export research notes as Markdown"
-                  >
-                    Export Notes ↓
-                  </button>
-
-                  <button
-                    onClick={handleAutoResearch}
-                    disabled={isResearching}
-                    className="px-4 py-2 font-handwriting text-2xl font-bold bg-[var(--line-color)] border-2 border-[var(--margin-line)] text-[var(--foreground)] hover:bg-orange-200 dark:hover:bg-orange-900 transition-colors transform -rotate-2 hover:rotate-0 disabled:opacity-50"
-                    title="Command AI to scrape the web for documents"
-                  >
-                    {isResearching ? 'Scraping Web...' : 'Auto-Research Web'}
-                  </button>
-                </div>
               </header>
-              <div className="flex-1 flex flex-col min-h-0 space-y-4">
+              <div className="flex-1 flex flex-col space-y-4">
                 <div className="shrink-0 flex flex-col md:flex-row gap-4">
                   <div className="flex-1 w-full">
                     <DocumentUpload topicId={activeTopicId} onUploadSuccess={fetchTopics} />
@@ -328,7 +297,37 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-                <ChatInterface topicId={activeTopicId} citationStyle={citationStyle} />
+                <ChatInterface topicId={activeTopicId} citationStyle={citationStyle}>
+                  {/* Action buttons moved to sticky input area */}
+                  <select
+                    value={citationStyle}
+                    onChange={(e) => setCitationStyle(e.target.value)}
+                    className="px-2 py-1 font-sans text-xs md:text-sm border-2 border-dashed border-[var(--foreground)] bg-transparent text-[var(--foreground)] rounded cursor-pointer focus:outline-none focus:border-blue-500 whitespace-nowrap shrink-0"
+                    title="Citation Format"
+                  >
+                    <option value="apa">APA</option>
+                    <option value="mla">MLA</option>
+                    <option value="chicago">Chicago</option>
+                    <option value="ieee">IEEE</option>
+                  </select>
+
+                  <button
+                    onClick={handleExport}
+                    className="px-2 md:px-3 py-1 font-handwriting text-base md:text-lg font-bold bg-[var(--line-color)] border border-[var(--margin-line)] text-[var(--foreground)] hover:bg-blue-200 dark:hover:bg-blue-900 transition-colors transform rotate-1 hover:rotate-0 whitespace-nowrap shrink-0"
+                    title="Export research notes as Markdown"
+                  >
+                    Export ↓
+                  </button>
+
+                  <button
+                    onClick={handleAutoResearch}
+                    disabled={isResearching}
+                    className="px-2 md:px-3 py-1 font-handwriting text-base md:text-lg font-bold bg-[var(--line-color)] border border-[var(--margin-line)] text-[var(--foreground)] hover:bg-orange-200 dark:hover:bg-orange-900 transition-colors transform -rotate-2 hover:rotate-0 disabled:opacity-50 whitespace-nowrap shrink-0"
+                    title="Command AI to scrape the web for documents"
+                  >
+                    {isResearching ? 'Scraping...' : 'Auto-Research Web'}
+                  </button>
+                </ChatInterface>
               </div>
             </>
           ) : (
