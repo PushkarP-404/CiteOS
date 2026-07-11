@@ -134,6 +134,31 @@ export default function Home() {
     }
   };
 
+  const handleDeleteTopic = async (topicIdToDelete: string, topicName: string) => {
+    const isConfirmed = window.confirm(`Are you sure you want to delete the topic "${topicName}"? This will permanently delete the topic, all its research, and chat history. This action is irreversible.`);
+    if (!isConfirmed) return;
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_URL}/api/topics/${topicIdToDelete}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete topic');
+      }
+
+      setTopics(topics.filter(t => t.id !== topicIdToDelete));
+      if (activeTopicId === topicIdToDelete) {
+        setActiveTopicId('');
+      }
+    } catch (error) {
+      console.error("Error deleting topic:", error);
+      alert('Failed to delete topic.');
+    }
+  };
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -216,17 +241,30 @@ export default function Home() {
             <p className="text-sm font-handwriting italic opacity-60">No topics found...</p>
           ) : (
             topics.map((topic) => (
-              <button
-                key={topic.id}
-                onClick={() => setActiveTopicId(topic.id)}
-                className={`w-full text-left px-3 py-1 text-xl font-handwriting transition-all relative ${activeTopicId === topic.id
-                    ? 'text-blue-600 font-bold scale-105 ml-2'
-                    : 'text-[var(--foreground)] opacity-70 hover:opacity-100 hover:ml-1'
-                  }`}
-              >
-                {activeTopicId === topic.id && <span className="absolute -left-3">»</span>}
-                {topic.name}
-              </button>
+              <div key={topic.id} className="flex items-center group relative w-full">
+                <button
+                  onClick={() => setActiveTopicId(topic.id)}
+                  className={`flex-1 min-w-0 text-left px-3 py-1 text-xl font-handwriting transition-all relative ${activeTopicId === topic.id
+                      ? 'text-blue-600 font-bold scale-105 ml-2'
+                      : 'text-[var(--foreground)] opacity-70 hover:opacity-100 hover:ml-1'
+                    }`}
+                >
+                  {activeTopicId === topic.id && <span className="absolute -left-3">»</span>}
+                  <span className="truncate block pr-6">{topic.name}</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteTopic(topic.id, topic.name);
+                  }}
+                  className="absolute right-0 p-2 text-red-500 hover:text-red-700 opacity-40 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                  title="Delete Topic"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
             ))
           )}
         </nav>

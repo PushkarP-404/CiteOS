@@ -817,6 +817,38 @@ async def get_topic_messages(topicId: str, userId: str = Depends(get_current_use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/api/topics/{topicId}")
+async def delete_topic(topicId: str, userId: str = Depends(get_current_user)):
+    try:
+        # Verify topic belongs to user
+        topic = await topics_collection.find_one({"_id": ObjectId(topicId), "userId": userId})
+        if not topic:
+            raise HTTPException(status_code=404, detail="Topic not found or unauthorized")
+        
+        # 1. Delete topic from MongoDB
+        await topics_collection.delete_one({"_id": ObjectId(topicId), "userId": userId})
+        
+        # 2. Delete all messages for this topic from MongoDB
+        await messages_collection.delete_many({"topicId": topicId})
+        
+        # 3. Delete all vector embeddings for this topic from Qdrant
+        await asyncio.to_thread(
+            qdrant_client.delete,
+            collection_name=COLLECTION_NAME,
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="topicId",
+                        match=MatchValue(value=topicId)
+                    )
+                ]
+            )
+        )
+        
+        return {"status": "success", "message": "Topic and all associated data deleted successfully"}
+    except Exception as e:
+        print(f"Error deleting topic: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/topics/{topicId}/export")
 async def export_topic(topicId: str, style: str = "apa", userId: str = Depends(get_current_user)):
