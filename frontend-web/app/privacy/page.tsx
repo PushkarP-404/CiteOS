@@ -48,7 +48,7 @@ export default function PrivacyPolicy() {
         <section className="space-y-3">
           <h2 className="text-xl font-bold mt-8">5. Contact Us</h2>
           <p>
-            If you have questions or comments about this policy, you may email us at support@citeos.example.com.
+            If you have questions or comments about this policy, you may email directly at pushkar404.p@gmail.com.
           </p>
         </section>
       </div>
